@@ -11,6 +11,7 @@ export default function PremioDetalle({ session }) {
 
   const [premio, setPremio] = useState(null)
   const [propuestas, setPropuestas] = useState([])
+  const [candidatos, setCandidatos] = useState([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
 
@@ -18,6 +19,7 @@ export default function PremioDetalle({ session }) {
   const [titulo, setTitulo] = useState('')
   const [texto, setTexto] = useState('')
   const [archivo, setArchivo] = useState(null)
+  const [candidatosSeleccionados, setCandidatosSeleccionados] = useState([])
   const [subiendo, setSubiendo] = useState(false)
   const [errorForm, setErrorForm] = useState(null)
 
@@ -26,6 +28,7 @@ export default function PremioDetalle({ session }) {
   const [editTitulo, setEditTitulo] = useState('')
   const [editTexto, setEditTexto] = useState('')
   const [editArchivo, setEditArchivo] = useState(null)
+  const [editCandidatos, setEditCandidatos] = useState([])
   const [quitarMedia, setQuitarMedia] = useState(false)
   const [guardandoEdit, setGuardandoEdit] = useState(false)
   const [errorEdit, setErrorEdit] = useState(null)
@@ -37,13 +40,14 @@ export default function PremioDetalle({ session }) {
     setCargando(true)
     setError(null)
 
-    const [resPremio, resPropuestas] = await Promise.all([
+    const [resPremio, resPropuestas, resCandidatos] = await Promise.all([
       supabase.from('premios').select('*').eq('id', id).single(),
       supabase
         .from('propuestas')
-        .select('*')
+        .select('*, propuesta_candidatos(candidato_id, candidatos(id, nombre))')
         .eq('premio_id', id)
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: false }),
+      supabase.from('candidatos').select('*').order('nombre')
     ])
 
     if (resPremio.error) {
@@ -51,6 +55,7 @@ export default function PremioDetalle({ session }) {
     } else {
       setPremio(resPremio.data)
       setPropuestas(resPropuestas.data || [])
+      setCandidatos(resCandidatos.data || [])
     }
 
     setCargando(false)
@@ -59,6 +64,14 @@ export default function PremioDetalle({ session }) {
   useEffect(() => {
     cargarDatos()
   }, [id])
+
+  const toggleCandidato = (candidatoId, lista, setLista) => {
+    if (lista.includes(candidatoId)) {
+      setLista(lista.filter((c) => c !== candidatoId))
+    } else {
+      setLista([...lista, candidatoId])
+    }
+  }
 
   const manejarArchivo = (e) => {
     setErrorForm(null)
@@ -80,6 +93,20 @@ export default function PremioDetalle({ session }) {
     e.preventDefault()
     if (!titulo.trim()) return
 
+    // 2. Asociar los candidatos seleccionados (solo si se eligió alguno)
+      if (candidatosSeleccionados.length > 0) {
+        const relaciones = candidatosSeleccionados.map((candidatoId) => ({
+          propuesta_id: nuevaPropuesta.id,
+          candidato_id: candidatoId
+        }))
+
+        const { error: relError } = await supabase
+          .from('propuesta_candidatos')
+          .insert(relaciones)
+
+        if (relError) throw relError
+      }
+
     setSubiendo(true)
     setErrorForm(null)
 
@@ -93,7 +120,8 @@ export default function PremioDetalle({ session }) {
         mediaTipo = media.tipo
       }
 
-      const { data, error: insertError } = await supabase
+      // 1. Insertar la propuesta
+      const { data: nuevaPropuesta, error: insertError } = await supabase
         .from('propuestas')
         .insert([
           {
@@ -111,11 +139,25 @@ export default function PremioDetalle({ session }) {
 
       if (insertError) throw insertError
 
-      setPropuestas([data, ...propuestas])
+      // 2. Asociar los candidatos seleccionados
+      const relaciones = candidatosSeleccionados.map((candidatoId) => ({
+        propuesta_id: nuevaPropuesta.id,
+        candidato_id: candidatoId
+      }))
+
+      const { error: relError } = await supabase
+        .from('propuesta_candidatos')
+        .insert(relaciones)
+
+      if (relError) throw relError
+
+      // 3. Recargar lista y limpiar formulario
       setTitulo('')
       setTexto('')
       setArchivo(null)
+      setCandidatosSeleccionados([])
       if (fileInputRef.current) fileInputRef.current.value = ''
+      await cargarDatos()
     } catch (err) {
       setErrorForm(err.message || 'Error al subir la propuesta.')
     } finally {
@@ -130,12 +172,14 @@ export default function PremioDetalle({ session }) {
     setEditTexto(p.texto || '')
     setEditArchivo(null)
     setQuitarMedia(false)
+    setEditCandidatos((p.propuesta_candidatos || []).map((pc) => pc.candidato_id))
     setErrorEdit(null)
   }
 
   const cancelarEdicion = () => {
     setEditandoId(null)
     setEditArchivo(null)
+    setEditCandidatos([])
     setQuitarMedia(false)
     setErrorEdit(null)
   }
@@ -161,6 +205,27 @@ export default function PremioDetalle({ session }) {
     e.preventDefault()
     if (!editTitulo.trim()) return
 
+    // 2. Reemplazar candidatos asociados
+      const { error: delError } = await supabase
+        .from('propuesta_candidatos')
+        .delete()
+        .eq('propuesta_id', propuestaOriginal.id)
+
+      if (delError) throw delError
+
+      if (editCandidatos.length > 0) {
+        const nuevasRelaciones = editCandidatos.map((candidatoId) => ({
+          propuesta_id: propuestaOriginal.id,
+          candidato_id: candidatoId
+        }))
+
+        const { error: insError } = await supabase
+          .from('propuesta_candidatos')
+          .insert(nuevasRelaciones)
+
+        if (insError) throw insError
+      }
+
     setGuardandoEdit(true)
     setErrorEdit(null)
 
@@ -177,7 +242,8 @@ export default function PremioDetalle({ session }) {
         mediaTipo = 'texto'
       }
 
-      const { data, error: updateError } = await supabase
+      // 1. Actualizar datos de la propuesta
+      const { error: updateError } = await supabase
         .from('propuestas')
         .update({
           titulo: editTitulo.trim(),
@@ -186,18 +252,89 @@ export default function PremioDetalle({ session }) {
           media_tipo: mediaTipo
         })
         .eq('id', propuestaOriginal.id)
-        .select()
-        .single()
 
       if (updateError) throw updateError
 
-      setPropuestas(propuestas.map((p) => (p.id === data.id ? data : p)))
+      // 2. Reemplazar candidatos asociados
+      const { error: delError } = await supabase
+        .from('propuesta_candidatos')
+        .delete()
+        .eq('propuesta_id', propuestaOriginal.id)
+
+      if (delError) throw delError
+
+      const nuevasRelaciones = editCandidatos.map((candidatoId) => ({
+        propuesta_id: propuestaOriginal.id,
+        candidato_id: candidatoId
+      }))
+
+      const { error: insError } = await supabase
+        .from('propuesta_candidatos')
+        .insert(nuevasRelaciones)
+
+      if (insError) throw insError
+
       cancelarEdicion()
+      await cargarDatos()
     } catch (err) {
       setErrorEdit(err.message || 'Error al guardar los cambios.')
     } finally {
       setGuardandoEdit(false)
     }
+  }
+
+  // Selector visual reutilizable de candidatos
+ const renderSelectorCandidatos = (seleccionados, setSeleccionados, disabled) => {
+    const nadieSeleccionado = seleccionados.length === 0
+
+    return (
+      <div>
+        <label style={{ display: 'block', marginBottom: 6, fontSize: '0.9rem', fontWeight: 'bold' }}>
+          ¿A quién(es) nominas? ({nadieSeleccionado ? 'Nadie' : `${seleccionados.length} seleccionados`})
+        </label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setSeleccionados([])}
+            style={{
+              padding: '0.4rem 0.8rem',
+              borderRadius: 20,
+              border: nadieSeleccionado ? '1px solid #888' : '1px solid #555',
+              background: nadieSeleccionado ? '#555' : 'transparent',
+              color: nadieSeleccionado ? '#fff' : 'inherit',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              fontSize: '0.85rem'
+            }}
+          >
+            {nadieSeleccionado ? '✓ ' : ''}Nadie
+          </button>
+
+          {candidatos.map((c) => {
+            const activo = seleccionados.includes(c.id)
+            return (
+              <button
+                key={c.id}
+                type="button"
+                disabled={disabled}
+                onClick={() => toggleCandidato(c.id, seleccionados, setSeleccionados)}
+                style={{
+                  padding: '0.4rem 0.8rem',
+                  borderRadius: 20,
+                  border: activo ? '1px solid #646cff' : '1px solid #555',
+                  background: activo ? '#646cff' : 'transparent',
+                  color: activo ? '#fff' : 'inherit',
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  fontSize: '0.85rem'
+                }}
+              >
+                {activo ? '✓ ' : ''}{c.nombre}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
   }
 
   if (cargando) return <p>Cargando premio...</p>
@@ -228,7 +365,7 @@ export default function PremioDetalle({ session }) {
       {/* Formulario de nueva propuesta */}
       <section style={{ border: '1px solid #444', borderRadius: 12, padding: '1.2rem', marginBottom: '2rem' }}>
         <h2 style={{ marginTop: 0 }}>Añadir una propuesta</h2>
-        <form onSubmit={crearPropuesta} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+        <form onSubmit={crearPropuesta} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
           <input
             type="text"
             placeholder="Título de la propuesta"
@@ -247,6 +384,8 @@ export default function PremioDetalle({ session }) {
             disabled={subiendo}
             style={{ padding: '0.6rem', borderRadius: 6, resize: 'vertical' }}
           />
+
+          {renderSelectorCandidatos(candidatosSeleccionados, setCandidatosSeleccionados, subiendo)}
 
           <div>
             <label htmlFor="media-file" style={{ display: 'block', marginBottom: 4, fontSize: '0.9rem' }}>
@@ -283,6 +422,9 @@ export default function PremioDetalle({ session }) {
           {propuestas.map((p) => {
             const esMia = p.creado_por === session.user.id
             const estaEditando = editandoId === p.id
+            const nominados = (p.propuesta_candidatos || [])
+              .map((pc) => pc.candidatos)
+              .filter(Boolean)
 
             return (
               <article
@@ -315,6 +457,8 @@ export default function PremioDetalle({ session }) {
                       disabled={guardandoEdit}
                       style={{ padding: '0.6rem', borderRadius: 6, resize: 'vertical' }}
                     />
+
+                    {renderSelectorCandidatos(editCandidatos, setEditCandidatos, guardandoEdit)}
 
                     <div>
                       <label style={{ display: 'block', marginBottom: 4, fontSize: '0.9rem' }}>
@@ -365,6 +509,25 @@ export default function PremioDetalle({ session }) {
                         </button>
                       )}
                     </div>
+
+                    {nominados.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.8rem' }}>
+                        {nominados.map((n) => (
+                          <span
+                            key={n.id}
+                            style={{
+                              fontSize: '0.8rem',
+                              padding: '0.2rem 0.6rem',
+                              borderRadius: 12,
+                              background: 'rgba(100, 108, 255, 0.2)',
+                              border: '1px solid rgba(100, 108, 255, 0.5)'
+                            }}
+                          >
+                            {n.nombre}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {p.texto && (
                       <p style={{ margin: '0 0 0.8rem 0', whiteSpace: 'pre-wrap' }}>{p.texto}</p>
