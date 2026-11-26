@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { supabase } from './supabaseClient'
 import Auth from './Auth'
 import Home from './Home'
+import PremioDetalle from './PremioDetalle'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -41,7 +42,7 @@ export default function App() {
       <main style={{ maxWidth: 800, margin: '0 auto', padding: '1rem' }}>
         <Routes>
           <Route path="/" element={<Home session={session} />} />
-          <Route path="/premio/:id" element={<div>Aquí irá PremioDetalle.jsx</div>} />
+          <Route path="/premio/:id" element={<PremioDetalle session={session} />} />
         </Routes>
       </main>
     </BrowserRouter>
