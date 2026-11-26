@@ -8,8 +8,11 @@ export async function uploadMedia(file) {
     { method: 'POST', body: formData }
   )
 
-  if (!res.ok) throw new Error('Error subiendo el archivo')
   const data = await res.json()
+
+  if (!res.ok) {
+    throw new Error(data.error?.message || 'Error subiendo el archivo')
+  }
 
   return {
     url: data.secure_url,
