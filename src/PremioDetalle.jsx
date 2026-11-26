@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { supabase } from './supabaseClient'
+import { supabase, ADMIN_EMAIL } from './supabaseClient'
 import { uploadMedia } from './uploadMedia'
 
 const MAX_FILE_SIZE = 40 * 1024 * 1024 // 40 MB
@@ -35,6 +35,22 @@ export default function PremioDetalle({ session }) {
 
   const nombreUsuario =
     session.user.user_metadata?.nombre || session.user.email.split('@')[0]
+
+  const esAdmin = session.user.email === ADMIN_EMAIL
+
+  const borrarPropuesta = async (propuesta) => {
+    const confirmado = window.confirm(
+      `¿Seguro que quieres borrar la propuesta "${propuesta.titulo}"?`
+    )
+    if (!confirmado) return
+
+    const { error } = await supabase.from('propuestas').delete().eq('id', propuesta.id)
+    if (error) {
+      alert('No se pudo borrar: ' + error.message)
+    } else {
+      setPropuestas(propuestas.filter((p) => p.id !== propuesta.id))
+    }
+  }
 
   const cargarDatos = async () => {
     setCargando(true)
@@ -470,14 +486,29 @@ export default function PremioDetalle({ session }) {
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
                       <h3 style={{ margin: '0 0 0.5rem 0' }}>{p.titulo}</h3>
-                      {esMia && (
-                        <button
-                          type="button"
-                          onClick={() => iniciarEdicion(p)}
-                          style={{ padding: '0.3rem 0.7rem', fontSize: '0.85rem', cursor: 'pointer' }}
-                        >
-                          Editar
-                        </button>
+                      {(esMia || esAdmin) && (
+                        <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+                          <button
+                            type="button"
+                            onClick={() => iniciarEdicion(p)}
+                            style={{ padding: '0.3rem 0.7rem', fontSize: '0.85rem', cursor: 'pointer' }}
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => borrarPropuesta(p)}
+                            style={{
+                              padding: '0.3rem 0.7rem',
+                              fontSize: '0.85rem',
+                              cursor: 'pointer',
+                              color: '#ff6b6b',
+                              borderColor: '#ff6b6b'
+                            }}
+                          >
+                            Borrar
+                          </button>
+                        </div>
                       )}
                     </div>
 
