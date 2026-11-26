@@ -93,20 +93,6 @@ export default function PremioDetalle({ session }) {
     e.preventDefault()
     if (!titulo.trim()) return
 
-    // 2. Asociar los candidatos seleccionados (solo si se eligió alguno)
-      if (candidatosSeleccionados.length > 0) {
-        const relaciones = candidatosSeleccionados.map((candidatoId) => ({
-          propuesta_id: nuevaPropuesta.id,
-          candidato_id: candidatoId
-        }))
-
-        const { error: relError } = await supabase
-          .from('propuesta_candidatos')
-          .insert(relaciones)
-
-        if (relError) throw relError
-      }
-
     setSubiendo(true)
     setErrorForm(null)
 
@@ -139,19 +125,21 @@ export default function PremioDetalle({ session }) {
 
       if (insertError) throw insertError
 
-      // 2. Asociar los candidatos seleccionados
-      const relaciones = candidatosSeleccionados.map((candidatoId) => ({
-        propuesta_id: nuevaPropuesta.id,
-        candidato_id: candidatoId
-      }))
+      // 2. Asociar candidatos solo si se seleccionó alguno
+      if (candidatosSeleccionados.length > 0) {
+        const relaciones = candidatosSeleccionados.map((candidatoId) => ({
+          propuesta_id: nuevaPropuesta.id,
+          candidato_id: candidatoId
+        }))
 
-      const { error: relError } = await supabase
-        .from('propuesta_candidatos')
-        .insert(relaciones)
+        const { error: relError } = await supabase
+          .from('propuesta_candidatos')
+          .insert(relaciones)
 
-      if (relError) throw relError
+        if (relError) throw relError
+      }
 
-      // 3. Recargar lista y limpiar formulario
+      // 3. Limpiar formulario y recargar lista
       setTitulo('')
       setTexto('')
       setArchivo(null)
@@ -159,6 +147,7 @@ export default function PremioDetalle({ session }) {
       if (fileInputRef.current) fileInputRef.current.value = ''
       await cargarDatos()
     } catch (err) {
+      console.error('Error al crear propuesta:', err)
       setErrorForm(err.message || 'Error al subir la propuesta.')
     } finally {
       setSubiendo(false)
@@ -205,27 +194,6 @@ export default function PremioDetalle({ session }) {
     e.preventDefault()
     if (!editTitulo.trim()) return
 
-    // 2. Reemplazar candidatos asociados
-      const { error: delError } = await supabase
-        .from('propuesta_candidatos')
-        .delete()
-        .eq('propuesta_id', propuestaOriginal.id)
-
-      if (delError) throw delError
-
-      if (editCandidatos.length > 0) {
-        const nuevasRelaciones = editCandidatos.map((candidatoId) => ({
-          propuesta_id: propuestaOriginal.id,
-          candidato_id: candidatoId
-        }))
-
-        const { error: insError } = await supabase
-          .from('propuesta_candidatos')
-          .insert(nuevasRelaciones)
-
-        if (insError) throw insError
-      }
-
     setGuardandoEdit(true)
     setErrorEdit(null)
 
@@ -263,20 +231,23 @@ export default function PremioDetalle({ session }) {
 
       if (delError) throw delError
 
-      const nuevasRelaciones = editCandidatos.map((candidatoId) => ({
-        propuesta_id: propuestaOriginal.id,
-        candidato_id: candidatoId
-      }))
+      if (editCandidatos.length > 0) {
+        const nuevasRelaciones = editCandidatos.map((candidatoId) => ({
+          propuesta_id: propuestaOriginal.id,
+          candidato_id: candidatoId
+        }))
 
-      const { error: insError } = await supabase
-        .from('propuesta_candidatos')
-        .insert(nuevasRelaciones)
+        const { error: insError } = await supabase
+          .from('propuesta_candidatos')
+          .insert(nuevasRelaciones)
 
-      if (insError) throw insError
+        if (insError) throw insError
+      }
 
       cancelarEdicion()
       await cargarDatos()
     } catch (err) {
+      console.error('Error al editar propuesta:', err)
       setErrorEdit(err.message || 'Error al guardar los cambios.')
     } finally {
       setGuardandoEdit(false)
@@ -284,7 +255,7 @@ export default function PremioDetalle({ session }) {
   }
 
   // Selector visual reutilizable de candidatos
- const renderSelectorCandidatos = (seleccionados, setSeleccionados, disabled) => {
+  const renderSelectorCandidatos = (seleccionados, setSeleccionados, disabled) => {
     const nadieSeleccionado = seleccionados.length === 0
 
     return (
