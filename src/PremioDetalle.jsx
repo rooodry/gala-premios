@@ -1,13 +1,28 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from './supabaseClient'
+import { uploadMedia } from './uploadMedia'
+
+const MAX_FILE_SIZE = 40 * 1024 * 1024 // 40 MB
 
 export default function PremioDetalle({ session }) {
   const { id } = useParams()
+  const fileInputRef = useRef(null)
+
   const [premio, setPremio] = useState(null)
   const [propuestas, setPropuestas] = useState([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
+
+  // Estados del formulario de nueva propuesta
+  const [titulo, setTitulo] = useState('')
+  const [texto, setTexto] = useState('')
+  const [archivo, setArchivo] = useState(null)
+  const [subiendo, setSubiendo] = useState(false)
+  const [errorForm, setErrorForm] = useState(null)
+
+  const nombreUsuario =
+    session.user.user_metadata?.nombre || session.user.email.split('@')[0]
 
   const cargarDatos = async () => {
     setCargando(true)
@@ -36,6 +51,79 @@ export default function PremioDetalle({ session }) {
     cargarDatos()
   }, [id])
 
+  const manejarArchivo = (e) => {
+    setErrorForm(null)
+    const file = e.target.files?.[0]
+    if (!file) {
+      setArchivo(null)
+      return
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      setErrorForm('El archivo supera el límite de 40 MB. Comprímelo o elige uno más ligero.')
+      setArchivo(null)
+      e.target.value = ''
+      return
+    }
+
+    setArchivo(file)
+  }
+
+  const crearPropuesta = async (e) => {
+    e.preventDefault()
+    if (!titulo.trim()) return
+
+    if (archivo && archivo.size > MAX_FILE_SIZE) {
+      setErrorForm('El archivo supera el límite de 40 MB.')
+      return
+    }
+
+    setSubiendo(true)
+    setErrorForm(null)
+
+    try {
+      let mediaUrl = null
+      let mediaTipo = 'texto'
+
+      // 1. Subir foto o vídeo a Cloudinary si el usuario seleccionó archivo
+      if (archivo) {
+        const media = await uploadMedia(archivo)
+        mediaUrl = media.url
+        mediaTipo = media.tipo
+      }
+
+      // 2. Guardar la propuesta en Supabase
+      const { data, error: insertError } = await supabase
+        .from('propuestas')
+        .insert([
+          {
+            premio_id: id,
+            titulo: titulo.trim(),
+            texto: texto.trim() || null,
+            media_url: mediaUrl,
+            media_tipo: mediaTipo,
+            creado_por: session.user.id,
+            autor_nombre: nombreUsuario
+          }
+        ])
+        .select()
+        .single()
+
+      if (insertError) throw insertError
+
+      // 3. Añadirla arriba de la lista y limpiar el formulario
+      setPropuestas([data, ...propuestas])
+      setTitulo('')
+      setTexto('')
+      setArchivo(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch (err) {
+      setErrorForm(err.message || 'Error al subir la propuesta. Inténtalo de nuevo.')
+    } finally {
+      setSubiendo(false)
+    }
+  }
+
   if (cargando) return <p>Cargando premio...</p>
   if (error || !premio) {
     return (
@@ -61,7 +149,54 @@ export default function PremioDetalle({ session }) {
         <small style={{ opacity: 0.6 }}>Categoría creada por {premio.autor_nombre}</small>
       </section>
 
-      {/* Aquí irá el formulario para añadir una nueva propuesta */}
+      {/* Formulario de nueva propuesta */}
+      <section style={{ border: '1px solid #444', borderRadius: 12, padding: '1.2rem', marginBottom: '2rem' }}>
+        <h2 style={{ marginTop: 0 }}>Añadir una propuesta</h2>
+        <form onSubmit={crearPropuesta} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+          <input
+            type="text"
+            placeholder="Título de la propuesta"
+            value={titulo}
+            onChange={(e) => setTitulo(e.target.value)}
+            required
+            disabled={subiendo}
+            style={{ padding: '0.6rem', borderRadius: 6 }}
+          />
+
+          <textarea
+            placeholder="Cuéntanos el contexto o la anécdota (opcional)"
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            rows={3}
+            disabled={subiendo}
+            style={{ padding: '0.6rem', borderRadius: 6, resize: 'vertical' }}
+          />
+
+          <div>
+            <label htmlFor="media-file" style={{ display: 'block', marginBottom: 4, fontSize: '0.9rem' }}>
+              Foto o vídeo opcional (máx. 40 MB)
+            </label>
+            <input
+              id="media-file"
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*"
+              onChange={manejarArchivo}
+              disabled={subiendo}
+            />
+          </div>
+
+          {errorForm && <p style={{ color: '#ff6b6b', margin: 0 }}>{errorForm}</p>}
+
+          <button
+            type="submit"
+            disabled={subiendo}
+            style={{ padding: '0.75rem', fontWeight: 'bold', cursor: subiendo ? 'not-allowed' : 'pointer' }}
+          >
+            {subiendo ? 'Subiendo propuesta...' : 'Publicar propuesta'}
+          </button>
+        </form>
+      </section>
 
       {/* Listado de propuestas */}
       <h2>Propuestas ({propuestas.length})</h2>
