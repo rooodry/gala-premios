@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import { supabase } from './supabaseClient'
 import Auth from './Auth'
 import Home from './Home'
 import PremioDetalle from './PremioDetalle'
+import Candidatos from './Candidatos'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -34,15 +35,37 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', borderBottom: '1px solid #333' }}>
-        <span>Hola, <strong>{nombreUsuario}</strong></span>
-        <button onClick={() => supabase.auth.signOut()}>Cerrar sesión</button>
+      <header
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '0.8rem',
+          padding: '1rem',
+          borderBottom: '1px solid #333'
+        }}
+      >
+        <nav style={{ display: 'flex', gap: '1.2rem', alignItems: 'center' }}>
+          <Link to="/" style={{ fontWeight: 'bold', textDecoration: 'none' }}>
+            Premios
+          </Link>
+          <Link to="/candidatos" style={{ fontWeight: 'bold', textDecoration: 'none' }}>
+            Candidatos
+          </Link>
+        </nav>
+
+        <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+          <span>Hola, <strong>{nombreUsuario}</strong></span>
+          <button onClick={() => supabase.auth.signOut()}>Cerrar sesión</button>
+        </div>
       </header>
 
       <main style={{ maxWidth: 800, margin: '0 auto', padding: '1rem' }}>
         <Routes>
           <Route path="/" element={<Home session={session} />} />
           <Route path="/premio/:id" element={<PremioDetalle session={session} />} />
+          <Route path="/candidatos" element={<Candidatos />} />
         </Routes>
       </main>
     </BrowserRouter>
