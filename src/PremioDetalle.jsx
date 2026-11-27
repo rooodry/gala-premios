@@ -8,6 +8,7 @@ const MAX_FILE_SIZE = 40 * 1024 * 1024 // 40 MB
 export default function PremioDetalle({ session }) {
   const { id } = useParams()
   const fileInputRef = useRef(null)
+  const [mediaDestapados, setMediaDestapados] = useState({})
 
   const [premio, setPremio] = useState(null)
   const [propuestas, setPropuestas] = useState([])
@@ -330,6 +331,7 @@ export default function PremioDetalle({ session }) {
   }
 
   // Render reutilizable de cada tarjeta de propuesta o razón
+// Render reutilizable de cada tarjeta de propuesta o razón
   const renderTarjetaPropuesta = (p) => {
     const esMia = p.creado_por === session.user.id
     const estaEditando = editandoId === p.id
@@ -459,22 +461,55 @@ export default function PremioDetalle({ session }) {
               <p style={{ margin: '0 0 0.8rem 0', whiteSpace: 'pre-wrap' }}>{p.texto}</p>
             )}
 
-            {p.media_tipo === 'imagen' && p.media_url && (
-              <img
-                src={p.media_url}
-                alt={p.titulo}
-                style={{ width: '100%', maxHeight: 500, objectFit: 'contain', borderRadius: 8 }}
-              />
-            )}
+            {p.media_url && (mostrarMedia || mediaDestapados[p.id]) ? (
+              <>
+                {p.media_tipo === 'imagen' && (
+                  <img
+                    src={p.media_url}
+                    alt={p.titulo}
+                    style={{ width: '100%', maxHeight: 500, objectFit: 'contain', borderRadius: 8 }}
+                  />
+                )}
 
-            {p.media_tipo === 'video' && p.media_url && (
-              <video
-                src={p.media_url}
-                controls
-                playsInline
-                style={{ width: '100%', maxHeight: 500, borderRadius: 8 }}
-              />
-            )}
+                {p.media_tipo === 'video' && (
+                  <video
+                    src={p.media_url}
+                    controls
+                    playsInline
+                    style={{ width: '100%', maxHeight: 500, borderRadius: 8 }}
+                  />
+                )}
+              </>
+            ) : p.media_url ? (
+              <div
+                style={{
+                  padding: '0.9rem',
+                  borderRadius: 8,
+                  border: '1px dashed #666',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '0.8rem',
+                  flexWrap: 'wrap'
+                }}
+              >
+                <span style={{ opacity: 0.75, fontSize: '0.9rem' }}>
+                  {p.media_tipo === 'video' ? 'Vídeo adjunto' : 'Foto adjunta'} (oculto hasta la gala)
+                </span>
+                {esAdmin && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMediaDestapados((prev) => ({ ...prev, [p.id]: true }))
+                    }
+                    style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', cursor: 'pointer' }}
+                  >
+                    Ver (solo admin)
+                  </button>
+                )}
+              </div>
+            ) : null}
 
             <div style={{ marginTop: '0.8rem' }}>
               <small style={{ opacity: 0.6 }}>Subido por {p.autor_nombre}</small>
