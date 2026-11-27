@@ -5,15 +5,15 @@ import { uploadMedia } from './uploadMedia'
 
 const MAX_FILE_SIZE = 40 * 1024 * 1024 // 40 MB
 
-export default function PremioDetalle({ session }) {
+export default function PremioDetalle({ session, mostrarMedia = true }) {
   const { id } = useParams()
   const fileInputRef = useRef(null)
-  const [mediaDestapados, setMediaDestapados] = useState({})
 
   const [premio, setPremio] = useState(null)
   const [propuestas, setPropuestas] = useState([])
   const [candidatos, setCandidatos] = useState([])
-  const [candidatoActivo, setCandidatoActivo] = useState(null) // Solo para premios especiales
+  const [candidatoActivo, setCandidatoActivo] = useState(null)
+  const [mediaDestapados, setMediaDestapados] = useState({})
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
 
@@ -127,7 +127,6 @@ export default function PremioDetalle({ session }) {
         mediaTipo = media.tipo
       }
 
-      // 1. Insertar propuesta (o razón si es premio especial)
       const { data: nuevaPropuesta, error: insertError } = await supabase
         .from('propuestas')
         .insert([
@@ -147,7 +146,6 @@ export default function PremioDetalle({ session }) {
 
       if (insertError) throw insertError
 
-      // 2. Solo en premios normales: asociar candidatos en propuesta_candidatos (para que cuente en Candidatos)
       if (!esEspecial && candidatosSeleccionados.length > 0) {
         const relaciones = candidatosSeleccionados.map((candidatoId) => ({
           propuesta_id: nuevaPropuesta.id,
@@ -161,7 +159,6 @@ export default function PremioDetalle({ session }) {
         if (relError) throw relError
       }
 
-      // 3. Limpiar formulario y recargar lista
       setTitulo('')
       setTexto('')
       setArchivo(null)
@@ -276,7 +273,6 @@ export default function PremioDetalle({ session }) {
     }
   }
 
-  // Selector visual de candidatos (solo para premios normales)
   const renderSelectorCandidatos = (seleccionados, setSeleccionados, disabled) => {
     const nadieSeleccionado = seleccionados.length === 0
 
@@ -330,8 +326,6 @@ export default function PremioDetalle({ session }) {
     )
   }
 
-  // Render reutilizable de cada tarjeta de propuesta o razón
-// Render reutilizable de cada tarjeta de propuesta o razón
   const renderTarjetaPropuesta = (p) => {
     const esMia = p.creado_por === session.user.id
     const estaEditando = editandoId === p.id
@@ -532,7 +526,6 @@ export default function PremioDetalle({ session }) {
 
   // --- VISTA PARA PREMIOS ESPECIALES ---
   if (esEspecial) {
-    // 1. Si aún no se ha hecho clic en ningún candidato: mostrar las 11 secciones
     if (!candidatoActivo) {
       return (
         <div>
@@ -654,7 +647,6 @@ export default function PremioDetalle({ session }) {
       )
     }
 
-    // 2. Si se ha hecho clic en un candidato: mostrar sus razones y formulario para añadir una razón
     const razonesCandidato = propuestas.filter(
       (p) => p.candidato_especial_id === candidatoActivo.id
     )
@@ -684,7 +676,6 @@ export default function PremioDetalle({ session }) {
           ← Volver a los 11 candidatos de {premio.titulo}
         </button>
 
-        {/* Cabecera del candidato */}
         <section
           style={{
             display: 'flex',
@@ -733,7 +724,6 @@ export default function PremioDetalle({ session }) {
           </div>
         </section>
 
-        {/* Formulario para añadir una razón */}
         <section style={{ border: '1px solid #444', borderRadius: 12, padding: '1.2rem', marginBottom: '2rem' }}>
           <h2 style={{ marginTop: 0 }}>Añadir una razón para {candidatoActivo.nombre}</h2>
           <form onSubmit={crearPropuesta} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
@@ -782,7 +772,6 @@ export default function PremioDetalle({ session }) {
           </form>
         </section>
 
-        {/* Listado de razones de este candidato */}
         <h2>Razones ({razonesCandidato.length})</h2>
         {razonesCandidato.length === 0 ? (
           <p>Aún no hay razones subidas para {candidatoActivo.nombre}. ¡Sé el primero!</p>
@@ -795,14 +784,13 @@ export default function PremioDetalle({ session }) {
     )
   }
 
-  // --- VISTA PARA PREMIOS NORMALES (igual que antes) ---
+  // --- VISTA PARA PREMIOS NORMALES ---
   return (
     <div>
       <Link to="/" style={{ display: 'inline-block', marginBottom: '1rem' }}>
         ← Volver a los premios
       </Link>
 
-      {/* Cabecera del premio */}
       <section style={{ borderBottom: '1px solid #444', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
         <h1 style={{ margin: '0 0 0.5rem 0' }}>{premio.titulo}</h1>
         {premio.descripcion && (
@@ -811,7 +799,6 @@ export default function PremioDetalle({ session }) {
         <small style={{ opacity: 0.6 }}>Categoría creada por {premio.autor_nombre}</small>
       </section>
 
-      {/* Formulario de nueva propuesta */}
       <section style={{ border: '1px solid #444', borderRadius: 12, padding: '1.2rem', marginBottom: '2rem' }}>
         <h2 style={{ marginTop: 0 }}>Añadir una propuesta</h2>
         <form onSubmit={crearPropuesta} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
@@ -862,7 +849,6 @@ export default function PremioDetalle({ session }) {
         </form>
       </section>
 
-      {/* Listado de propuestas */}
       <h2>Propuestas ({propuestas.length})</h2>
       {propuestas.length === 0 ? (
         <p>Aún no hay propuestas para este premio. ¡Sé el primero en subir una!</p>
