@@ -8,8 +8,10 @@ const normalizar = (texto = '') =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
 
-export default function Home({ session }) {
+export default function Home({ session, fase = 'propuestas' }) {
   const [premios, setPremios] = useState([])
+  const [misVotosNormales, setMisVotosNormales] = useState([])
+  const [misVotosEspeciales, setMisVotosEspeciales] = useState([])
   const [titulo, setTitulo] = useState('')
   const [descripcion, setDescripcion] = useState('')
   const [esEspecial, setEsEspecial] = useState(false)
@@ -26,25 +28,36 @@ export default function Home({ session }) {
   const [guardandoEdit, setGuardandoEdit] = useState(false)
 
   const esAdmin = session.user.email === ADMIN_EMAIL
+  const enPropuestas = fase === 'propuestas'
+  const enVotaciones = fase === 'votaciones'
   const nombreUsuario =
     session.user.user_metadata?.nombre || session.user.email.split('@')[0]
 
-  const cargarPremios = async () => {
-    const { data, error } = await supabase
-      .from('premios')
-      .select('*')
-      .order('created_at', { ascending: false })
+  const cargarDatos = async () => {
+    const [resPremios, resVotosNorm, resVotosEsp] = await Promise.all([
+      supabase.from('premios').select('*').order('created_at', { ascending: false }),
+      supabase
+        .from('votos_normales')
+        .select('premio_id, puntos')
+        .eq('usuario_id', session.user.id),
+      supabase
+        .from('votos_especiales')
+        .select('premio_id')
+        .eq('usuario_id', session.user.id)
+    ])
 
-    if (error) {
+    if (resPremios.error) {
       setError('No se pudieron cargar los premios')
     } else {
-      setPremios(data || [])
+      setPremios(resPremios.data || [])
+      setMisVotosNormales(resVotosNorm.data || [])
+      setMisVotosEspeciales(resVotosEsp.data || [])
     }
     setCargando(false)
   }
 
   useEffect(() => {
-    cargarPremios()
+    cargarDatos()
   }, [])
 
   const crearPremio = async (e) => {
@@ -127,6 +140,23 @@ export default function Home({ session }) {
     }
   }
 
+  // Calcular estado de voto del usuario para cada premio
+  const getEstadoVoto = (premio) => {
+    if (premio.tipo === 'especial') {
+      const votado = misVotosEspeciales.some((v) => v.premio_id === premio.id)
+      return { completo: votado, texto: votado ? '✓ Votado' : 'Pendiente' }
+    } else {
+      const cantidad = misVotosNormales.filter((v) => v.premio_id === premio.id).length
+      return {
+        completo: cantidad === 3,
+        parcial: cantidad > 0 && cantidad < 3,
+        texto: cantidad === 3 ? '✓ 3/3' : cantidad > 0 ? `${cantidad}/3` : 'Sin votar'
+      }
+    }
+  }
+
+  const totalCompletados = premios.filter((p) => getEstadoVoto(p).completo).length
+
   const premiosEspeciales = premios.filter((p) => p.tipo === 'especial')
   const premiosNormales = premios.filter((p) => p.tipo !== 'especial')
 
@@ -142,8 +172,10 @@ export default function Home({ session }) {
 
   const renderTarjetaPremio = (premio) => {
     const esMio = premio.creado_por === session.user.id
+    const puedeGestionar = (enPropuestas && esMio) || esAdmin
     const estaEditando = editandoId === premio.id
     const destacado = premio.tipo === 'especial'
+    const estadoVoto = getEstadoVoto(premio)
 
     return (
       <div
@@ -219,6 +251,24 @@ export default function Home({ session }) {
                     Especial
                   </span>
                 )}
+                {enVotaciones && (
+                  <span
+                    style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 'bold',
+                      padding: '0.15rem 0.6rem',
+                      borderRadius: 12,
+                      background: estadoVoto.completo
+                        ? '#2e7d32'
+                        : estadoVoto.parcial
+                        ? '#ed6c02'
+                        : '#333',
+                      color: '#fff'
+                    }}
+                  >
+                    {estadoVoto.texto}
+                  </span>
+                )}
               </div>
               {premio.descripcion && (
                 <p style={{ margin: '0 0 0.8rem 0', opacity: 0.85 }}>{premio.descripcion}</p>
@@ -226,7 +276,7 @@ export default function Home({ session }) {
               <small style={{ opacity: 0.6 }}>Creado por {premio.autor_nombre}</small>
             </Link>
 
-            {(esMio || esAdmin) && (
+            {puedeGestionar && (
               <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
                 {esAdmin && (
                   <button
@@ -260,6 +310,42 @@ export default function Home({ session }) {
 
   return (
     <div>
+      {/* Banner de progreso en fase de votaciones */}
+      {enVotaciones && !cargando && (
+        <section
+          style={{
+            border: '1px solid #f5b942',
+            borderRadius: 12,
+            padding: '1rem 1.2rem',
+            marginBottom: '1.5rem',
+            background: 'rgba(245, 185, 66, 0.08)'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <strong>Votaciones abiertas</strong>
+            <span style={{ fontWeight: 'bold', color: '#f5b942' }}>
+              {totalCompletados} / {premios.length} categorías completadas
+            </span>
+          </div>
+          <div style={{ width: '100%', height: 8, background: '#333', borderRadius: 4, overflow: 'hidden' }}>
+            <div
+              style={{
+                width: premios.length ? `${(totalCompletados / premios.length) * 100}%` : '0%',
+                height: '100%',
+                background: totalCompletados === premios.length ? '#4caf50' : '#f5b942',
+                transition: 'width 0.3s'
+              }}
+            />
+          </div>
+        </section>
+      )}
+
+      {fase === 'cerrado' && (
+        <p style={{ padding: '0.9rem 1.2rem', borderRadius: 10, background: '#2a2a2a', marginBottom: '1.5rem' }}>
+          Las votaciones están cerradas. ¡Nos vemos en la Gala!
+        </p>
+      )}
+
       {/* Premios Especiales fijados arriba del todo */}
       {!cargando && premiosEspeciales.length > 0 && (
         <section style={{ marginBottom: '2rem' }}>
@@ -272,41 +358,43 @@ export default function Home({ session }) {
         </section>
       )}
 
-      {/* Formulario para crear un nuevo premio */}
-      <section style={{ border: '1px solid #444', borderRadius: 12, padding: '1.2rem', marginBottom: '2rem' }}>
-        <h2 style={{ marginTop: 0 }}>Proponer un nuevo Premio</h2>
-        <form onSubmit={crearPremio} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-          <input
-            type="text"
-            placeholder='Ej. "Premio a fiesta del año"'
-            value={titulo}
-            onChange={(e) => setTitulo(e.target.value)}
-            required
-            style={{ padding: '0.6rem', borderRadius: 6 }}
-          />
-          <textarea
-            placeholder="Descripción opcional (de qué va esta categoría...)"
-            value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
-            rows={2}
-            style={{ padding: '0.6rem', borderRadius: 6, resize: 'vertical' }}
-          />
-          {esAdmin && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={esEspecial}
-                onChange={(e) => setEsEspecial(e.target.checked)}
-              />
-              Marcar como Premio Especial (fijo arriba, con las 11 secciones de candidatos)
-            </label>
-          )}
-          {error && <p style={{ color: '#ff6b6b', margin: 0 }}>{error}</p>}
-          <button type="submit" disabled={creando} style={{ padding: '0.7rem', fontWeight: 'bold', cursor: 'pointer' }}>
-            {creando ? 'Guardando...' : 'Crear Premio'}
-          </button>
-        </form>
-      </section>
+      {/* Formulario para crear un nuevo premio (solo en fase propuestas) */}
+      {enPropuestas && (
+        <section style={{ border: '1px solid #444', borderRadius: 12, padding: '1.2rem', marginBottom: '2rem' }}>
+          <h2 style={{ marginTop: 0 }}>Proponer un nuevo Premio</h2>
+          <form onSubmit={crearPremio} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+            <input
+              type="text"
+              placeholder='Ej. "Premio a fiesta del año"'
+              value={titulo}
+              onChange={(e) => setTitulo(e.target.value)}
+              required
+              style={{ padding: '0.6rem', borderRadius: 6 }}
+            />
+            <textarea
+              placeholder="Descripción opcional (de qué va esta categoría...)"
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value)}
+              rows={2}
+              style={{ padding: '0.6rem', borderRadius: 6, resize: 'vertical' }}
+            />
+            {esAdmin && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={esEspecial}
+                  onChange={(e) => setEsEspecial(e.target.checked)}
+                />
+                Marcar como Premio Especial (fijo arriba, con las 11 secciones de candidatos)
+              </label>
+            )}
+            {error && <p style={{ color: '#ff6b6b', margin: 0 }}>{error}</p>}
+            <button type="submit" disabled={creando} style={{ padding: '0.7rem', fontWeight: 'bold', cursor: 'pointer' }}>
+              {creando ? 'Guardando...' : 'Crear Premio'}
+            </button>
+          </form>
+        </section>
+      )}
 
       {/* Lista de premios normales con buscador */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem', marginBottom: '1rem' }}>

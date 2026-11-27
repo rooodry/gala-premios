@@ -5,12 +5,14 @@ import Auth from './Auth'
 import Home from './Home'
 import PremioDetalle from './PremioDetalle'
 import Candidatos from './Candidatos'
+import Resultados from './Resultados'
 
 export default function App() {
   const [session, setSession] = useState(null)
   const [cargandoSesion, setCargandoSesion] = useState(true)
-  const [mostrarMedia, setMostrarMedia] = useState(true)
-  const [actualizandoMedia, setActualizandoMedia] = useState(false)
+  const [fase, setFase] = useState('propuestas')
+  const [configId, setConfigId] = useState(null)
+  const [mostrarMedia, setMostrarMedia] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -25,38 +27,34 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Cargar configuración global cuando hay sesión
+  // Cargar la fase actual desde configuracion
   useEffect(() => {
     if (!session) return
-
-    const cargarConfig = async () => {
-      const { data } = await supabase
-        .from('configuracion')
-        .select('mostrar_media')
-        .eq('id', 1)
-        .single()
-
-      if (data) setMostrarMedia(data.mostrar_media)
-    }
-
-    cargarConfig()
+    supabase
+      .from('configuracion')
+      .select('*')
+      .limit(1)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setFase(data.fase)
+          setConfigId(data.id)
+        }
+      })
   }, [session])
 
-  const alternarMostrarMedia = async () => {
-    setActualizandoMedia(true)
-    const nuevoValor = !mostrarMedia
-
+  const cambiarFase = async (nuevaFase) => {
+    if (!configId) return
     const { error } = await supabase
       .from('configuracion')
-      .update({ mostrar_media: nuevoValor })
-      .eq('id', 1)
+      .update({ fase: nuevaFase })
+      .eq('id', configId)
 
     if (error) {
-      alert('No se pudo cambiar la configuración: ' + error.message)
+      alert('Error al cambiar de fase: ' + error.message)
     } else {
-      setMostrarMedia(nuevoValor)
+      setFase(nuevaFase)
     }
-    setActualizandoMedia(false)
   }
 
   if (cargandoSesion) {
@@ -67,8 +65,12 @@ export default function App() {
     return <Auth />
   }
 
+  const nombreUsuario =
+    session.user.user_metadata?.nombre ||
+    session.user.user_metadata?.full_name ||
+    session.user.email.split('@')[0]
+
   const esAdmin = session.user.email === ADMIN_EMAIL
-  const nombreUsuario = session.user.user_metadata?.nombre || session.user.email
 
   return (
     <BrowserRouter>
@@ -83,33 +85,37 @@ export default function App() {
           borderBottom: '1px solid #333'
         }}
       >
-        <nav style={{ display: 'flex', gap: '1.2rem', alignItems: 'center' }}>
-          <Link to="/" style={{ fontWeight: 'bold', textDecoration: 'none' }}>
-            Premios
+        <nav style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <Link to="/" style={{ fontWeight: 'bold', textDecoration: 'none' }}>Premios</Link>
+        <Link to="/candidatos" style={{ fontWeight: 'bold', textDecoration: 'none' }}>Candidatos</Link>
+        {esAdmin && (
+          <Link to="/resultados" style={{ fontWeight: 'bold', textDecoration: 'none', color: '#f5b942' }}>
+            Resultados
           </Link>
-          <Link to="/candidatos" style={{ fontWeight: 'bold', textDecoration: 'none' }}>
-            Candidatos
-          </Link>
+        )}
         </nav>
 
         <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
           {esAdmin && (
-            <button
-              type="button"
-              onClick={alternarMostrarMedia}
-              disabled={actualizandoMedia}
-              style={{
-                padding: '0.35rem 0.7rem',
-                fontSize: '0.85rem',
-                cursor: 'pointer',
-                borderRadius: 6,
-                border: mostrarMedia ? '1px solid #4caf50' : '1px solid #ff9800',
-                color: mostrarMedia ? '#4caf50' : '#ff9800',
-                background: 'transparent'
-              }}
-            >
-              {mostrarMedia ? 'Media: Visible' : 'Media: Oculto'}
-            </button>
+            <>
+              <select
+                value={fase}
+                onChange={(e) => cambiarFase(e.target.value)}
+                style={{ padding: '0.35rem 0.6rem', borderRadius: 6, fontWeight: 'bold' }}
+              >
+                <option value="propuestas">Fase: Propuestas</option>
+                <option value="votaciones">Fase: Votaciones</option>
+                <option value="cerrado">Fase: Cerrado</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setMostrarMedia((prev) => !prev)}
+                style={{ padding: '0.35rem 0.6rem', fontSize: '0.85rem', cursor: 'pointer' }}
+              >
+                Media: {mostrarMedia ? 'Visible' : 'Oculto'}
+              </button>
+            </>
           )}
 
           <span>Hola, <strong>{nombreUsuario}</strong></span>
@@ -119,12 +125,13 @@ export default function App() {
 
       <main style={{ maxWidth: 800, margin: '0 auto', padding: '1rem' }}>
         <Routes>
-          <Route path="/" element={<Home session={session} />} />
+          <Route path="/" element={<Home session={session} fase={fase} />} />
           <Route
             path="/premio/:id"
-            element={<PremioDetalle session={session} mostrarMedia={mostrarMedia} />}
+            element={<PremioDetalle session={session} mostrarMedia={mostrarMedia} fase={fase} />}
           />
           <Route path="/candidatos" element={<Candidatos />} />
+          <Route path="/resultados" element={<Resultados session={session} />} />
         </Routes>
       </main>
     </BrowserRouter>
