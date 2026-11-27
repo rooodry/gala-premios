@@ -315,6 +315,76 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
     </div>
   )
 
+  const renderSelectorArchivo = (archivoActual, setArchivoActual, onChange, disabled, inputRef = null) => (
+    <div>
+      <label style={{ display: 'block', marginBottom: 6, fontSize: '0.9rem', fontWeight: 'bold' }}>
+        Archivo adjunto opcional (máx. 40 MB)
+      </label>
+
+      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        {/* Abre directamente la Galería en Android e iOS */}
+        <label
+          style={{
+            padding: '0.45rem 0.85rem',
+            borderRadius: 8,
+            border: '1px solid #555',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            fontSize: '0.85rem',
+            opacity: disabled ? 0.6 : 1
+          }}
+        >
+          📷 Foto / Vídeo
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*,video/*"
+            onChange={onChange}
+            disabled={disabled}
+            style={{ display: 'none' }}
+          />
+        </label>
+
+        {/* Abre el selector de audios / archivos */}
+        <label
+          style={{
+            padding: '0.45rem 0.85rem',
+            borderRadius: 8,
+            border: '1px solid #555',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            fontSize: '0.85rem',
+            opacity: disabled ? 0.6 : 1
+          }}
+        >
+          🎵 Audio
+          <input
+            type="file"
+            accept="audio/*"
+            onChange={onChange}
+            disabled={disabled}
+            style={{ display: 'none' }}
+          />
+        </label>
+      </div>
+
+      {archivoActual && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem', fontSize: '0.85rem' }}>
+          <span style={{ opacity: 0.85 }}>Seleccionado: <strong>{archivoActual.name}</strong></span>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              setArchivoActual(null)
+              if (inputRef?.current) inputRef.current.value = ''
+            }}
+            style={{ padding: '0.15rem 0.5rem', fontSize: '0.8rem', cursor: 'pointer' }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+    </div>
+  )
+
   const renderSelectorCandidatos = (seleccionados, setSeleccionados, disabled) => {
     const nadieSeleccionado = seleccionados.length === 0
 
@@ -411,17 +481,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
 
             {renderCampoDrive(editDriveUrl, setEditDriveUrl, guardandoEdit)}
 
-            <div>
-              <label style={{ display: 'block', marginBottom: 4, fontSize: '0.9rem' }}>
-                Cambiar foto o vídeo (opcional, máx. 40 MB)
-              </label>
-              <input
-                type="file"
-                accept="image/*,video/*,audio/*"
-                onChange={manejarArchivoEdit}
-                disabled={guardandoEdit}
-              />
-            </div>
+            {renderSelectorArchivo(editArchivo, setEditArchivo, manejarArchivoEdit, guardandoEdit)}
 
             {p.media_url && !editArchivo && (
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem' }}>
@@ -832,19 +892,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
 
             {renderCampoDrive(driveUrl, setDriveUrl, subiendo)}
 
-            <div>
-              <label htmlFor="media-file-especial" style={{ display: 'block', marginBottom: 4, fontSize: '0.9rem' }}>
-                Foto o vídeo de prueba opcional (máx. 40 MB)
-              </label>
-              <input
-                id="media-file-especial"
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,video/*,audio/*"
-                onChange={manejarArchivo}
-                disabled={subiendo}
-              />
-            </div>
+            {renderSelectorArchivo(archivo, setArchivo, manejarArchivo, subiendo, fileInputRef)}
 
             {errorForm && <p style={{ color: '#ff6b6b', margin: 0 }}>{errorForm}</p>}
 
@@ -911,19 +959,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
 
           {renderCampoDrive(driveUrl, setDriveUrl, subiendo)}
 
-          <div>
-            <label htmlFor="media-file" style={{ display: 'block', marginBottom: 4, fontSize: '0.9rem' }}>
-              Foto o vídeo opcional (máx. 40 MB)
-            </label>
-            <input
-              id="media-file"
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,video/*,audio/*"
-              onChange={manejarArchivo}
-              disabled={subiendo}
-            />
-          </div>
+          {renderSelectorArchivo(archivo, setArchivo, manejarArchivo, subiendo, fileInputRef)}
 
           {errorForm && <p style={{ color: '#ff6b6b', margin: 0 }}>{errorForm}</p>}
 
