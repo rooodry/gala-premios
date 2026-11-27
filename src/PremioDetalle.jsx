@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { supabase, ADMIN_EMAIL } from './supabaseClient'
+import { supabase, ADMIN_EMAIL, DRIVE_FOLDER_URL } from './supabaseClient'
 import { uploadMedia } from './uploadMedia'
 
 const MAX_FILE_SIZE = 40 * 1024 * 1024 // 40 MB
@@ -20,6 +20,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
   // Estados del formulario de nueva propuesta / razón
   const [titulo, setTitulo] = useState('')
   const [texto, setTexto] = useState('')
+  const [driveUrl, setDriveUrl] = useState('')
   const [archivo, setArchivo] = useState(null)
   const [candidatosSeleccionados, setCandidatosSeleccionados] = useState([])
   const [subiendo, setSubiendo] = useState(false)
@@ -29,6 +30,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
   const [editandoId, setEditandoId] = useState(null)
   const [editTitulo, setEditTitulo] = useState('')
   const [editTexto, setEditTexto] = useState('')
+  const [editDriveUrl, setEditDriveUrl] = useState('')
   const [editArchivo, setEditArchivo] = useState(null)
   const [editCandidatos, setEditCandidatos] = useState([])
   const [quitarMedia, setQuitarMedia] = useState(false)
@@ -134,6 +136,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
             premio_id: id,
             titulo: titulo.trim(),
             texto: texto.trim() || null,
+            drive_url: driveUrl.trim() || null,
             media_url: mediaUrl,
             media_tipo: mediaTipo,
             creado_por: session.user.id,
@@ -161,6 +164,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
 
       setTitulo('')
       setTexto('')
+      setDriveUrl('')
       setArchivo(null)
       setCandidatosSeleccionados([])
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -178,6 +182,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
     setEditandoId(p.id)
     setEditTitulo(p.titulo)
     setEditTexto(p.texto || '')
+    setEditDriveUrl(p.drive_url || '')
     setEditArchivo(null)
     setQuitarMedia(false)
     setEditCandidatos((p.propuesta_candidatos || []).map((pc) => pc.candidato_id))
@@ -187,6 +192,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
   const cancelarEdicion = () => {
     setEditandoId(null)
     setEditArchivo(null)
+    setEditDriveUrl('')
     setEditCandidatos([])
     setQuitarMedia(false)
     setErrorEdit(null)
@@ -234,6 +240,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
         .update({
           titulo: editTitulo.trim(),
           texto: editTexto.trim() || null,
+          drive_url: editDriveUrl.trim() || null,
           media_url: mediaUrl,
           media_tipo: mediaTipo
         })
@@ -272,6 +279,41 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
       setGuardandoEdit(false)
     }
   }
+
+  // Bloque reutilizable para el campo de Link a Drive
+  const renderCampoDrive = (valor, setValor, disabled) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>
+          Link a Drive (opcional)
+        </label>
+        <a
+          href={DRIVE_FOLDER_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontSize: '0.82rem',
+            padding: '0.3rem 0.65rem',
+            borderRadius: 6,
+            border: '1px solid #646cff',
+            color: '#646cff',
+            textDecoration: 'none',
+            fontWeight: 'bold'
+          }}
+        >
+          Añadir link a Drive ↗
+        </a>
+      </div>
+      <input
+        type="url"
+        placeholder="Pega aquí el enlace del archivo de Google Drive..."
+        value={valor}
+        onChange={(e) => setValor(e.target.value)}
+        disabled={disabled}
+        style={{ padding: '0.6rem', borderRadius: 6 }}
+      />
+    </div>
+  )
 
   const renderSelectorCandidatos = (seleccionados, setSeleccionados, disabled) => {
     const nadieSeleccionado = seleccionados.length === 0
@@ -367,13 +409,15 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
 
             {!esEspecial && renderSelectorCandidatos(editCandidatos, setEditCandidatos, guardandoEdit)}
 
+            {renderCampoDrive(editDriveUrl, setEditDriveUrl, guardandoEdit)}
+
             <div>
               <label style={{ display: 'block', marginBottom: 4, fontSize: '0.9rem' }}>
                 Cambiar foto o vídeo (opcional, máx. 40 MB)
               </label>
               <input
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*,video/*,audio/*"
                 onChange={manejarArchivoEdit}
                 disabled={guardandoEdit}
               />
@@ -455,6 +499,37 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
               <p style={{ margin: '0 0 0.8rem 0', whiteSpace: 'pre-wrap' }}>{p.texto}</p>
             )}
 
+            {/* Caja de Link a Drive */}
+            {p.drive_url && (
+              <div
+                style={{
+                  marginBottom: '0.8rem',
+                  padding: '0.7rem 0.9rem',
+                  borderRadius: 8,
+                  border: '1px solid rgba(100, 108, 255, 0.5)',
+                  background: 'rgba(100, 108, 255, 0.08)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem'
+                }}
+              >
+                <small style={{ opacity: 0.75, fontWeight: 'bold' }}>Link a Drive</small>
+                <a
+                  href={p.drive_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: '#8c92ff',
+                    wordBreak: 'break-all',
+                    textDecoration: 'underline',
+                    fontSize: '0.9rem'
+                  }}
+                >
+                  {p.drive_url}
+                </a>
+              </div>
+            )}
+
             {p.media_url && (mostrarMedia || mediaDestapados[p.id]) ? (
               <>
                 {p.media_tipo === 'imagen' && (
@@ -473,6 +548,14 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
                     style={{ width: '100%', maxHeight: 500, borderRadius: 8 }}
                   />
                 )}
+
+                {p.media_tipo === 'audio' && (
+                  <audio
+                    src={p.media_url}
+                    controls
+                    style={{ width: '100%', marginTop: '0.4rem' }}
+                  />
+                )}
               </>
             ) : p.media_url ? (
               <div
@@ -489,7 +572,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
                 }}
               >
                 <span style={{ opacity: 0.75, fontSize: '0.9rem' }}>
-                  {p.media_tipo === 'video' ? 'Vídeo adjunto' : 'Foto adjunta'} (oculto hasta la gala)
+                  {p.media_tipo === 'video' ? 'Vídeo adjunto' : p.media_tipo === 'audio' ? 'Audio adjunto' : 'Foto adjunta'} (oculto hasta la gala)
                 </span>
                 {esAdmin && (
                   <button
@@ -660,6 +743,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
             setCandidatoActivo(null)
             setTitulo('')
             setTexto('')
+            setDriveUrl('')
             setArchivo(null)
             setErrorForm(null)
           }}
@@ -746,6 +830,8 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
               style={{ padding: '0.6rem', borderRadius: 6, resize: 'vertical' }}
             />
 
+            {renderCampoDrive(driveUrl, setDriveUrl, subiendo)}
+
             <div>
               <label htmlFor="media-file-especial" style={{ display: 'block', marginBottom: 4, fontSize: '0.9rem' }}>
                 Foto o vídeo de prueba opcional (máx. 40 MB)
@@ -754,7 +840,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
                 id="media-file-especial"
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*,video/*,audio/*"
                 onChange={manejarArchivo}
                 disabled={subiendo}
               />
@@ -823,6 +909,8 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
 
           {renderSelectorCandidatos(candidatosSeleccionados, setCandidatosSeleccionados, subiendo)}
 
+          {renderCampoDrive(driveUrl, setDriveUrl, subiendo)}
+
           <div>
             <label htmlFor="media-file" style={{ display: 'block', marginBottom: 4, fontSize: '0.9rem' }}>
               Foto o vídeo opcional (máx. 40 MB)
@@ -831,7 +919,7 @@ export default function PremioDetalle({ session, mostrarMedia = true }) {
               id="media-file"
               ref={fileInputRef}
               type="file"
-              accept="image/*,video/*"
+              accept="image/*,video/*,audio/*"
               onChange={manejarArchivo}
               disabled={subiendo}
             />

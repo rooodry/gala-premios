@@ -2,11 +2,18 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase, ADMIN_EMAIL } from './supabaseClient'
 
+const normalizar = (texto = '') =>
+  texto
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
 export default function Home({ session }) {
   const [premios, setPremios] = useState([])
   const [titulo, setTitulo] = useState('')
   const [descripcion, setDescripcion] = useState('')
   const [esEspecial, setEsEspecial] = useState(false)
+  const [busqueda, setBusqueda] = useState('')
   const [cargando, setCargando] = useState(true)
   const [creando, setCreando] = useState(false)
   const [error, setError] = useState(null)
@@ -122,6 +129,16 @@ export default function Home({ session }) {
 
   const premiosEspeciales = premios.filter((p) => p.tipo === 'especial')
   const premiosNormales = premios.filter((p) => p.tipo !== 'especial')
+
+  const termino = normalizar(busqueda.trim())
+  const premiosNormalesFiltrados = termino
+    ? premiosNormales.filter((p) => {
+        const enTitulo = normalizar(p.titulo).includes(termino)
+        const enDesc = normalizar(p.descripcion || '').includes(termino)
+        const enAutor = normalizar(p.autor_nombre || '').includes(termino)
+        return enTitulo || enDesc || enAutor
+      })
+    : premiosNormales
 
   const renderTarjetaPremio = (premio) => {
     const esMio = premio.creado_por === session.user.id
@@ -291,15 +308,52 @@ export default function Home({ session }) {
         </form>
       </section>
 
-      {/* Lista de premios normales */}
-      <h2>Categorías de la Gala ({premiosNormales.length})</h2>
+      {/* Lista de premios normales con buscador */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem', marginBottom: '1rem' }}>
+        <h2 style={{ margin: 0 }}>
+          Categorías de la Gala (
+          {termino
+            ? `${premiosNormalesFiltrados.length} de ${premiosNormales.length}`
+            : premiosNormales.length}
+          )
+        </h2>
+
+        <div style={{ display: 'flex', gap: '0.4rem', flex: '1 1 240px', maxWidth: 360 }}>
+          <input
+            type="search"
+            placeholder="Buscar categoría..."
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            style={{
+              flex: 1,
+              padding: '0.55rem 0.75rem',
+              borderRadius: 8,
+              border: '1px solid #555'
+            }}
+          />
+          {busqueda && (
+            <button
+              type="button"
+              onClick={() => setBusqueda('')}
+              style={{ padding: '0.55rem 0.75rem', borderRadius: 8, cursor: 'pointer' }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+
       {cargando ? (
         <p>Cargando premios...</p>
       ) : premiosNormales.length === 0 ? (
         <p>Aún no hay premios creados. ¡Sé el primero en proponer uno!</p>
+      ) : premiosNormalesFiltrados.length === 0 ? (
+        <p style={{ opacity: 0.75 }}>
+          No se encontraron categorías que coincidan con &ldquo;{busqueda}&rdquo;.
+        </p>
       ) : (
         <div style={{ display: 'grid', gap: '1rem' }}>
-          {premiosNormales.map(renderTarjetaPremio)}
+          {premiosNormalesFiltrados.map(renderTarjetaPremio)}
         </div>
       )}
     </div>

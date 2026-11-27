@@ -14,8 +14,15 @@ export async function uploadMedia(file) {
     throw new Error(data.error?.message || 'Error subiendo el archivo')
   }
 
+  let tipo = 'imagen'
+  if (file.type.startsWith('audio/') || data.is_audio) {
+    tipo = 'audio'
+  } else if (data.resource_type === 'video') {
+    tipo = 'video'
+  }
+
   return {
     url: data.secure_url,
-    tipo: data.resource_type === 'video' ? 'video' : 'imagen'
+    tipo
   }
 }
