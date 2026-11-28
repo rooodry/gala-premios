@@ -8,7 +8,48 @@ const MEDALLA_INFO = {
   3: { icono: '🥉', nombre: 'BRONCE', color: '#cd7f32', bg: 'rgba(205, 127, 50, 0.08)' }
 }
 
+const FRASES_DISCURSO = [
+  'Ha sido un año muy largo...',
+  'Lleno de momentazos, vergüenzas ajenas y leyendas del grupo...',
+  'Esta noche ha habido muchos ganadores...',
+  'Pero solo uno puede coronarse como el Campeón de Oro.',
+  'Los dos candidatos con más puntos de toda la gala son...'
+]
+
+const CONFETI_PIEZAS = Array.from({ length: 42 }, (_, i) => ({
+  id: i,
+  left: `${(i * 37) % 100}%`,
+  delay: `${((i * 19) % 25) / 10}s`,
+  duration: `${2.6 + ((i * 13) % 20) / 10}s`,
+  color: ['#ffd700', '#ff6b6b', '#646cff', '#4caf50', '#ff9800', '#ffffff'][i % 6],
+  size: 8 + (i % 6)
+}))
+
 const esUrlAudio = (url = '') => /\.(mp3|wav|ogg|m4a|aac|flac)(\?.*)?$/i.test(url)
+
+const ESTILOS_ANIMACIONES = `
+@keyframes galaFadeUp {
+  0% { opacity: 0; transform: translateY(24px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes galaZoomIn {
+  0% { opacity: 0; transform: scale(0.6); }
+  70% { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes galaPulsoOro {
+  0%, 100% { box-shadow: 0 0 18px rgba(255, 215, 0, 0.35); }
+  50% { box-shadow: 0 0 42px rgba(255, 215, 0, 0.85); }
+}
+@keyframes galaConfeti {
+  0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(105vh) rotate(720deg); opacity: 0; }
+}
+@keyframes galaLatido {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+}
+`
 
 export default function Resultados({ session, mostrarMedia = false }) {
   const [seccionActiva, setSeccionActiva] = useState(null) // null | 'normales' | 'especiales' | 'campeon'
@@ -16,6 +57,13 @@ export default function Resultados({ session, mostrarMedia = false }) {
   const [indiceNormalActivo, setIndiceNormalActivo] = useState(0)
   const [revelados, setRevelados] = useState({})
   const [mediaDestapados, setMediaDestapados] = useState({})
+
+  // Estados de la ceremonia del Campeón de Oro
+  const [pasoCeremonia, setPasoCeremonia] = useState('intro') // 'intro' | 'discurso' | 'finalistas' | 'suspense' | 'ganador' | 'tabla'
+  const [indiceFrase, setIndiceFrase] = useState(0)
+  const [finalistasDesordenados, setFinalistasDesordenados] = useState([])
+  const [cuentaAtras, setCuentaAtras] = useState(3)
+  const [focoSuspense, setFocoSuspense] = useState(0)
 
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
@@ -80,13 +128,31 @@ export default function Resultados({ session, mostrarMedia = false }) {
       ])
       setTotalVotantes(votantesUnicos.size)
 
-      // Mapa de puntuación acumulada por candidato
+      // Mapa de puntuación y criterios de desempate por candidato
       const puntosPorCandidato = {}
       candidatos.forEach((c) => {
         puntosPorCandidato[c.id] = {
           ...c,
           puntosTotales: 0,
-          desglose: []
+          especialesGanados: 0,
+          oros: 0,
+          platas: 0,
+          nominaciones: 0,
+          desglose: [],
+          especialesDestacados: [],
+          propuestasDestacadas: []
+        }
+      })
+
+      // Contar nominaciones totales en premios normales (criterio e de desempate)
+      propuestas.forEach((pr) => {
+        if (!pr.candidato_especial_id && pr.propuesta_candidatos) {
+          pr.propuesta_candidatos.forEach((pc) => {
+            const cid = pc.candidato_id || pc.candidatos?.id
+            if (cid && puntosPorCandidato[cid]) {
+              puntosPorCandidato[cid].nominaciones += 1
+            }
+          })
         }
       })
 
@@ -121,12 +187,19 @@ export default function Resultados({ session, mostrarMedia = false }) {
           const desempatePorRazones = empatadosAVotos.length > ganadores.length
 
           ganadores.forEach((g) => {
-            if (puntosPorCandidato[g.candidato.id]) {
-              puntosPorCandidato[g.candidato.id].puntosTotales += 5
-              puntosPorCandidato[g.candidato.id].desglose.push({
+            const entry = puntosPorCandidato[g.candidato.id]
+            if (entry) {
+              entry.puntosTotales += 5
+              entry.especialesGanados += 1
+              entry.desglose.push({
                 premio: premio.titulo,
                 detalle: 'Ganador Premio Especial',
                 puntos: 5
+              })
+              entry.especialesDestacados.push({
+                premioTitulo: premio.titulo,
+                votos: g.votos,
+                razones: g.razones
               })
             }
           })
@@ -175,12 +248,21 @@ export default function Resultados({ session, mostrarMedia = false }) {
             top3.push({ ...actual, posicion, puntosGala })
 
             actual.nominados.forEach((nom) => {
-              if (puntosPorCandidato[nom.id]) {
-                puntosPorCandidato[nom.id].puntosTotales += puntosGala
-                puntosPorCandidato[nom.id].desglose.push({
+              const entry = puntosPorCandidato[nom.id]
+              if (entry) {
+                entry.puntosTotales += puntosGala
+                if (posicion === 1) entry.oros += 1
+                if (posicion === 2) entry.platas += 1
+                entry.desglose.push({
                   premio: premio.titulo,
                   detalle: `${MEDALLA_INFO[posicion].icono} ${actual.titulo}`,
                   puntos: puntosGala
+                })
+                entry.propuestasDestacadas.push({
+                  ...actual,
+                  premioTitulo: premio.titulo,
+                  posicion,
+                  puntosGala
                 })
               }
             })
@@ -189,10 +271,24 @@ export default function Resultados({ session, mostrarMedia = false }) {
           return { premio, top3 }
         })
 
-      // --- 3. TOP 11 GENERAL ---
-      const rankingFinal = Object.values(puntosPorCandidato).sort(
-        (a, b) => b.puntosTotales - a.puntosTotales || a.nombre.localeCompare(b.nombre)
-      )
+      // --- 3. TOP 11 GENERAL CON TUS 5 CRITERIOS DE DESEMPATE ---
+      // a) Más puntos | b) Más especiales | c) Más oros | d) Más platas | e) Más nominaciones
+      const rankingFinal = Object.values(puntosPorCandidato)
+        .map((c) => ({
+          ...c,
+          propuestasDestacadas: [...c.propuestasDestacadas].sort(
+            (a, b) => a.posicion - b.posicion || b.puntosVotacion - a.puntosVotacion
+          )
+        }))
+        .sort(
+          (a, b) =>
+            b.puntosTotales - a.puntosTotales ||
+            b.especialesGanados - a.especialesGanados ||
+            b.oros - a.oros ||
+            b.platas - a.platas ||
+            b.nominaciones - a.nominaciones ||
+            a.nombre.localeCompare(b.nombre)
+        )
 
       setResultadosEspeciales(resEspCalculados)
       setResultadosNormales(resNormCalculados)
@@ -203,7 +299,7 @@ export default function Resultados({ session, mostrarMedia = false }) {
     calcularResultados()
   }, [esAdmin])
 
-  // Pasar de diapositiva con las flechas del teclado en Premios Normales
+  // Pasar de diapositiva con flechas del teclado en Premios Normales
   useEffect(() => {
     if (seccionActiva !== 'normales' || resultadosNormales.length === 0) return
 
@@ -220,6 +316,110 @@ export default function Resultados({ session, mostrarMedia = false }) {
     window.addEventListener('keydown', manejarTecla)
     return () => window.removeEventListener('keydown', manejarTecla)
   }, [seccionActiva, resultadosNormales.length])
+
+  // Animación automática del discurso inicial en Campeón de Oro
+  useEffect(() => {
+    if (seccionActiva !== 'campeon' || pasoCeremonia !== 'discurso') return
+
+    const timer = setTimeout(() => {
+      if (indiceFrase < FRASES_DISCURSO.length - 1) {
+        setIndiceFrase((prev) => prev + 1)
+      } else {
+        setPasoCeremonia('finalistas')
+      }
+    }, 3400)
+
+    return () => clearTimeout(timer)
+  }, [seccionActiva, pasoCeremonia, indiceFrase])
+
+  // Permitir avanzar con Barra Espaciadora cuando los 2 finalistas están de pie
+  useEffect(() => {
+    if (seccionActiva !== 'campeon' || pasoCeremonia !== 'finalistas') return
+
+    const manejarEspacio = (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault()
+        setCuentaAtras(3)
+        setPasoCeremonia('suspense')
+      }
+    }
+
+    window.addEventListener('keydown', manejarEspacio)
+    return () => window.removeEventListener('keydown', manejarEspacio)
+  }, [seccionActiva, pasoCeremonia])
+
+  // Cuenta atrás y efecto de foco en el suspense
+  useEffect(() => {
+    if (seccionActiva !== 'campeon' || pasoCeremonia !== 'suspense') return
+
+    const focoInterval = setInterval(() => {
+      setFocoSuspense((prev) => (prev === 0 ? 1 : 0))
+    }, 240)
+
+    const timer = setTimeout(() => {
+      if (cuentaAtras > 1) {
+        setCuentaAtras((prev) => prev - 1)
+      } else {
+        setPasoCeremonia('ganador')
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+    }, 1150)
+
+    return () => {
+      clearInterval(focoInterval)
+      clearTimeout(timer)
+    }
+  }, [seccionActiva, pasoCeremonia, cuentaAtras])
+
+  const iniciarEntregaCampeon = () => {
+    const dosPrimeros = top11.slice(0, 2)
+    const mezclados =
+      dosPrimeros.length === 2 && Math.random() < 0.5
+        ? [dosPrimeros[1], dosPrimeros[0]]
+        : dosPrimeros
+    setFinalistasDesordenados(mezclados)
+    setIndiceFrase(0)
+    setPasoCeremonia('discurso')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const renderAvatar = (candidato, size = 80, borde = '3px solid #f5b942') => {
+    if (candidato.foto_url) {
+      return (
+        <img
+          src={candidato.foto_url}
+          alt={candidato.nombre}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: '50%',
+            objectFit: 'cover',
+            border: borde,
+            flexShrink: 0
+          }}
+        />
+      )
+    }
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          background: '#333',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: size * 0.4,
+          fontWeight: 'bold',
+          border: borde,
+          flexShrink: 0
+        }}
+      >
+        {candidato.nombre.charAt(0).toUpperCase()}
+      </div>
+    )
+  }
 
   const renderMediaPropuesta = (item) => {
     if (!item.media_url && !item.drive_url) return null
@@ -341,6 +541,7 @@ export default function Resultados({ session, mostrarMedia = false }) {
           setPremioEspecialActivoId(null)
           setIndiceNormalActivo(0)
           setRevelados({})
+          setPasoCeremonia('intro')
           window.scrollTo({ top: 0, behavior: 'smooth' })
         }}
         style={{
@@ -367,26 +568,26 @@ export default function Resultados({ session, mostrarMedia = false }) {
   if (!seccionActiva) {
     const tarjetas = [
       {
-        id: 'normales',
-        icono: '🏆',
-        titulo: 'Premios Normales',
-        subtitulo: `${resultadosNormales.length} categorías — Top 3 con fotos, vídeos y audios`,
-        borde: '#646cff',
-        bg: 'rgba(100, 108, 255, 0.10)'
-      },
-      {
         id: 'especiales',
         icono: '⭐',
         titulo: 'Premios Especiales',
-        subtitulo: `${resultadosEspeciales.length} premios — +5 pts para el ganador`,
+        subtitulo: `${resultadosEspeciales.length} premios — Cajas cerradas con ganador y razones`,
         borde: '#f5b942',
         bg: 'rgba(245, 185, 66, 0.10)'
+      },
+      {
+        id: 'normales',
+        icono: '🏆',
+        titulo: 'Premios Normales',
+        subtitulo: `${resultadosNormales.length} categorías — Slideshow Top 3 con revelación al clic`,
+        borde: '#646cff',
+        bg: 'rgba(100, 108, 255, 0.10)'
       },
       {
         id: 'campeon',
         icono: '👑',
         titulo: 'Campeón de Oro',
-        subtitulo: 'Clasificación final Top 11 de la Gala',
+        subtitulo: 'Entrega final automática — Sin spoilers',
         borde: '#ffd700',
         bg: 'linear-gradient(135deg, rgba(255, 215, 0, 0.18), rgba(245, 185, 66, 0.05))'
       }
@@ -417,6 +618,7 @@ export default function Resultados({ session, mostrarMedia = false }) {
               type="button"
               onClick={() => {
                 setSeccionActiva(t.id)
+                setPasoCeremonia('intro')
                 window.scrollTo({ top: 0, behavior: 'smooth' })
               }}
               style={{
@@ -445,7 +647,7 @@ export default function Resultados({ session, mostrarMedia = false }) {
     )
   }
 
-  // --- SECCIÓN 1: PREMIOS NORMALES (SLIDESHOW + REVELAR AL CLIC) ---
+  // --- SECCIÓN 1: PREMIOS NORMALES (SLIDESHOW + REVELAR AL CLIC, SIN MOSTRAR PUNTOS DE GALA) ---
   if (seccionActiva === 'normales') {
     const total = resultadosNormales.length
     const indiceSeguro = Math.min(indiceNormalActivo, Math.max(total - 1, 0))
@@ -605,9 +807,11 @@ export default function Resultados({ session, mostrarMedia = false }) {
                             border: `2px solid ${medalla.color}`,
                             background: medalla.bg,
                             borderRadius: 14,
-                            padding: '1.4rem'
+                            padding: '1.4rem',
+                            animation: 'galaFadeUp 0.45s ease-out'
                           }}
                         >
+                          <style>{ESTILOS_ANIMACIONES}</style>
                           <div
                             style={{
                               display: 'flex',
@@ -622,31 +826,17 @@ export default function Resultados({ session, mostrarMedia = false }) {
                               {medalla.icono} {item.posicion}º PUESTO — {medalla.nombre}
                             </span>
 
-                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                              <span
-                                style={{
-                                  padding: '0.25rem 0.7rem',
-                                  borderRadius: 16,
-                                  background: 'rgba(0, 0, 0, 0.35)',
-                                  fontSize: '0.85rem',
-                                  fontWeight: 'bold'
-                                }}
-                              >
-                                {item.puntosVotacion} pts de votación
-                              </span>
-                              <span
-                                style={{
-                                  padding: '0.25rem 0.7rem',
-                                  borderRadius: 16,
-                                  background: medalla.color,
-                                  color: '#1a1a1a',
-                                  fontSize: '0.85rem',
-                                  fontWeight: 'bold'
-                                }}
-                              >
-                                +{item.puntosGala} pts gala
-                              </span>
-                            </div>
+                            <span
+                              style={{
+                                padding: '0.25rem 0.7rem',
+                                borderRadius: 16,
+                                background: 'rgba(0, 0, 0, 0.35)',
+                                fontSize: '0.85rem',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              {item.puntosVotacion} pts de votación
+                            </span>
                           </div>
 
                           <h3 style={{ margin: '0 0 0.6rem 0', fontSize: '1.45rem' }}>{item.titulo}</h3>
@@ -715,7 +905,7 @@ export default function Resultados({ session, mostrarMedia = false }) {
     )
   }
 
-  // --- SECCIÓN 2: PREMIOS ESPECIALES (CAJAS CLICABLES -> GANADOR + RAZONES) ---
+  // --- SECCIÓN 2: PREMIOS ESPECIALES (CAJAS CLICABLES -> GANADOR + RAZONES, SIN MOSTRAR +5 PTS) ---
   if (seccionActiva === 'especiales') {
     const especialSeleccionado = resultadosEspeciales.find(
       (item) => item.premio.id === premioEspecialActivoId
@@ -793,6 +983,7 @@ export default function Resultados({ session, mostrarMedia = false }) {
 
     return (
       <div>
+        <style>{ESTILOS_ANIMACIONES}</style>
         <div
           style={{
             display: 'flex',
@@ -830,7 +1021,8 @@ export default function Resultados({ session, mostrarMedia = false }) {
             border: '2px solid #f5b942',
             borderRadius: 18,
             padding: '1.8rem',
-            background: 'rgba(245, 185, 66, 0.04)'
+            background: 'rgba(245, 185, 66, 0.04)',
+            animation: 'galaFadeUp 0.45s ease-out'
           }}
         >
           <div
@@ -863,7 +1055,7 @@ export default function Resultados({ session, mostrarMedia = false }) {
 
               {hayEmpate && (
                 <p style={{ color: '#ff9800', margin: 0, fontWeight: 'bold', fontSize: '0.95rem' }}>
-                  Empate en votos y en número de razones — todos los ganadores suman +5 pts por ahora.
+                  Empate en votos y en número de razones.
                 </p>
               )}
 
@@ -884,37 +1076,7 @@ export default function Resultados({ session, mostrarMedia = false }) {
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                      {candidato.foto_url ? (
-                        <img
-                          src={candidato.foto_url}
-                          alt={candidato.nombre}
-                          style={{
-                            width: 80,
-                            height: 80,
-                            borderRadius: '50%',
-                            objectFit: 'cover',
-                            border: '3px solid #f5b942'
-                          }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: 80,
-                            height: 80,
-                            borderRadius: '50%',
-                            background: '#333',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '2rem',
-                            fontWeight: 'bold',
-                            border: '3px solid #f5b942'
-                          }}
-                        >
-                          {candidato.nombre.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-
+                      {renderAvatar(candidato, 80, '3px solid #f5b942')}
                       <div>
                         <small style={{ textTransform: 'uppercase', letterSpacing: 1, color: '#f5b942', fontWeight: 'bold' }}>
                           🏆 Ganador
@@ -923,31 +1085,17 @@ export default function Resultados({ session, mostrarMedia = false }) {
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <span
-                        style={{
-                          padding: '0.3rem 0.8rem',
-                          borderRadius: 16,
-                          background: 'rgba(0, 0, 0, 0.35)',
-                          fontWeight: 'bold',
-                          fontSize: '0.9rem'
-                        }}
-                      >
-                        {votos} {votos === 1 ? 'voto' : 'votos'}
-                      </span>
-                      <span
-                        style={{
-                          padding: '0.3rem 0.8rem',
-                          borderRadius: 16,
-                          background: '#f5b942',
-                          color: '#1a1a1a',
-                          fontWeight: 'bold',
-                          fontSize: '0.9rem'
-                        }}
-                      >
-                        +5 pts gala
-                      </span>
-                    </div>
+                    <span
+                      style={{
+                        padding: '0.35rem 0.9rem',
+                        borderRadius: 16,
+                        background: 'rgba(0, 0, 0, 0.35)',
+                        fontWeight: 'bold',
+                        fontSize: '0.95rem'
+                      }}
+                    >
+                      {votos} {votos === 1 ? 'voto' : 'votos'}
+                    </span>
                   </div>
 
                   <h4 style={{ margin: '0 0 0.8rem 0', fontSize: '1.1rem', opacity: 0.9 }}>
@@ -1008,75 +1156,551 @@ export default function Resultados({ session, mostrarMedia = false }) {
     )
   }
 
-  // --- SECCIÓN 3: CAMPEÓN DE ORO (TOP 11) ---
+  // --- SECCIÓN 3: CEREMONIA CAMPEÓN DE ORO ---
+  const campeon = top11[0]
+
   return (
     <div>
+      <style>{ESTILOS_ANIMACIONES}</style>
       {renderBarraVolver('👑 Campeón de Oro')}
 
-      <div style={{ display: 'grid', gap: '0.9rem' }}>
-        {top11.map((c, index) => (
-          <div
-            key={c.id}
+      {/* PASO 0: PANTALLA INICIAL SIN SPOILERS */}
+      {pasoCeremonia === 'intro' && (
+        <div
+          style={{
+            minHeight: '62vh',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+            padding: '2.5rem 1.5rem',
+            borderRadius: 20,
+            border: '2px solid #ffd700',
+            background: 'radial-gradient(circle at top, rgba(255, 215, 0, 0.16), rgba(0, 0, 0, 0.45))',
+            animation: 'galaFadeUp 0.6s ease-out'
+          }}
+        >
+          <div style={{ fontSize: '4.2rem', marginBottom: '0.8rem' }}>👑</div>
+          <h2 style={{ margin: '0 0 0.8rem 0', fontSize: '2.4rem', color: '#ffd700' }}>
+            Gran Entrega: Campeón de Oro
+          </h2>
+          <p style={{ maxWidth: 520, margin: '0 0 2.2rem 0', fontSize: '1.1rem', opacity: 0.88 }}>
+            Todos los votos han sido contabilizados. A partir de aquí la página toma el control y
+            ni el presentador sabe quién ha ganado.
+          </p>
+
+          {top11.length === 0 || campeon.puntosTotales === 0 ? (
+            <p style={{ color: '#ff9800', fontWeight: 'bold' }}>
+              Todavía no hay puntos registrados para iniciar la entrega.
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={iniciarEntregaCampeon}
+              style={{
+                padding: '1.1rem 2.6rem',
+                fontSize: '1.3rem',
+                fontWeight: 'bold',
+                borderRadius: 999,
+                border: 'none',
+                background: 'linear-gradient(135deg, #ffd700, #f5a623)',
+                color: '#1a1a1a',
+                cursor: 'pointer',
+                animation: 'galaPulsoOro 2.2s infinite'
+              }}
+            >
+              Comenzar entrega
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* PASO 1: DISCURSO AUTOMÁTICO CON ANIMACIÓN */}
+      {pasoCeremonia === 'discurso' && (
+        <div
+          style={{
+            minHeight: '62vh',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+            padding: '3rem 1.8rem',
+            borderRadius: 20,
+            border: '2px solid rgba(255, 215, 0, 0.5)',
+            background: 'radial-gradient(circle at center, rgba(255, 215, 0, 0.12), rgba(0, 0, 0, 0.5))'
+          }}
+        >
+          <div style={{ fontSize: '2.5rem', marginBottom: '1.2rem', opacity: 0.9 }}>✨</div>
+          <h2
+            key={indiceFrase}
             style={{
-              border: index === 0 && c.puntosTotales > 0 ? '2px solid #f5b942' : '1px solid #444',
-              background: index === 0 && c.puntosTotales > 0 ? 'rgba(245, 185, 66, 0.08)' : 'transparent',
-              borderRadius: 12,
-              padding: '1rem 1.2rem'
+              margin: 0,
+              maxWidth: 640,
+              fontSize: '2.1rem',
+              lineHeight: 1.35,
+              color: '#fff',
+              animation: 'galaFadeUp 0.9s ease-out'
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                <strong style={{ fontSize: '1.2rem', width: 32 }}>#{index + 1}</strong>
-                {c.foto_url ? (
-                  <img
-                    src={c.foto_url}
-                    alt={c.nombre}
-                    style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover' }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: '50%',
-                      background: '#333',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 'bold'
-                    }}
-                  >
-                    {c.nombre.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <strong style={{ fontSize: '1.15rem' }}>{c.nombre}</strong>
-              </div>
+            {FRASES_DISCURSO[indiceFrase]}
+          </h2>
 
-              <span
+          <button
+            type="button"
+            onClick={() => setPasoCeremonia('finalistas')}
+            style={{
+              marginTop: '3rem',
+              background: 'transparent',
+              border: '1px solid #555',
+              color: '#aaa',
+              padding: '0.4rem 0.9rem',
+              borderRadius: 8,
+              fontSize: '0.82rem',
+              cursor: 'pointer'
+            }}
+          >
+            Saltar intro →
+          </button>
+        </div>
+      )}
+
+      {/* PASO 2: LOS 2 FINALISTAS (DESORDENADOS) + PAUSA PARA QUE SALGAN AL FRENTE */}
+      {pasoCeremonia === 'finalistas' && (
+        <div
+          style={{
+            padding: '2.4rem 1.6rem',
+            borderRadius: 20,
+            border: '2px solid #ffd700',
+            background: 'radial-gradient(circle at top, rgba(255, 215, 0, 0.14), rgba(0, 0, 0, 0.45))',
+            textAlign: 'center',
+            animation: 'galaFadeUp 0.7s ease-out'
+          }}
+        >
+          <small style={{ textTransform: 'uppercase', letterSpacing: 2, color: '#ffd700', fontWeight: 'bold' }}>
+            Los dos finalistas al Campeón de Oro
+          </small>
+          <h2 style={{ margin: '0.6rem 0 2rem 0', fontSize: '2rem' }}>
+            ¡Poneos de pie y salid al frente!
+          </h2>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+              gap: '1.5rem',
+              maxWidth: 620,
+              margin: '0 auto 2.4rem auto'
+            }}
+          >
+            {finalistasDesordenados.map((f, idx) => (
+              <div
+                key={f.id}
                 style={{
-                  padding: '0.35rem 0.9rem',
-                  borderRadius: 16,
-                  fontWeight: 'bold',
-                  background: c.puntosTotales > 0 ? '#f5b942' : '#333',
-                  color: c.puntosTotales > 0 ? '#1a1a1a' : '#aaa'
+                  padding: '2rem 1.4rem',
+                  borderRadius: 18,
+                  border: '2px solid #ffd700',
+                  background: 'rgba(255, 215, 0, 0.08)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '1rem',
+                  animation: `galaZoomIn ${0.6 + idx * 0.25}s ease-out`
                 }}
               >
-                {c.puntosTotales} pts
-              </span>
+                {renderAvatar(f, 130, '4px solid #ffd700')}
+                <h3 style={{ margin: 0, fontSize: '1.8rem' }}>{f.nombre}</h3>
+                <span style={{ fontSize: '0.9rem', opacity: 0.75 }}>Finalista</span>
+              </div>
+            ))}
+          </div>
+
+          <p style={{ margin: '0 0 1.4rem 0', opacity: 0.75, fontSize: '0.95rem' }}>
+            Cuando los dos estén al frente, que alguien pulse el botón (o la barra espaciadora):
+          </p>
+
+          <button
+            type="button"
+            onClick={() => {
+              setCuentaAtras(3)
+              setPasoCeremonia('suspense')
+            }}
+            style={{
+              padding: '1rem 2.4rem',
+              fontSize: '1.2rem',
+              fontWeight: 'bold',
+              borderRadius: 999,
+              border: 'none',
+              background: 'linear-gradient(135deg, #ffd700, #f5a623)',
+              color: '#1a1a1a',
+              cursor: 'pointer',
+              animation: 'galaPulsoOro 2s infinite'
+            }}
+          >
+            🥁 Anunciar al Campeón de Oro
+          </button>
+        </div>
+      )}
+
+      {/* PASO 3: SUSPENSE 3... 2... 1... CON FOCO ALTERNANDO */}
+      {pasoCeremonia === 'suspense' && (
+        <div
+          style={{
+            minHeight: '62vh',
+            padding: '2.5rem 1.5rem',
+            borderRadius: 20,
+            border: '2px solid #ffd700',
+            background: 'radial-gradient(circle at center, rgba(255, 215, 0, 0.16), rgba(0, 0, 0, 0.6))',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center'
+          }}
+        >
+          <small style={{ textTransform: 'uppercase', letterSpacing: 2.5, color: '#ffd700', fontWeight: 'bold' }}>
+            El Campeón de Oro es...
+          </small>
+
+          <div
+            key={cuentaAtras}
+            style={{
+              fontSize: '5rem',
+              fontWeight: 'bold',
+              color: '#ffd700',
+              margin: '1rem 0 2rem 0',
+              animation: 'galaLatido 0.9s ease-in-out'
+            }}
+          >
+            {cuentaAtras}
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
+              gap: '2rem'
+            }}
+          >
+            {finalistasDesordenados.map((f, idx) => {
+              const iluminado = focoSuspense === idx
+              return (
+                <div
+                  key={f.id}
+                  style={{
+                    padding: '1.4rem 1.8rem',
+                    borderRadius: 16,
+                    border: iluminado ? '3px solid #ffd700' : '2px solid #444',
+                    background: iluminado ? 'rgba(255, 215, 0, 0.22)' : 'rgba(255, 255, 255, 0.03)',
+                    transform: iluminado ? 'scale(1.08)' : 'scale(0.94)',
+                    opacity: iluminado ? 1 : 0.45,
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '0.8rem',
+                    minWidth: 180
+                  }}
+                >
+                  {renderAvatar(f, 100, iluminado ? '4px solid #ffd700' : '2px solid #555')}
+                  <strong style={{ fontSize: '1.4rem' }}>{f.nombre}</strong>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* PASO 4: GANADOR + CONFETI + RAZONES Y PROPUESTAS MÁS VOTADAS */}
+      {pasoCeremonia === 'ganador' && campeon && (
+        <div style={{ position: 'relative' }}>
+          {/* Lluvia de confeti CSS */}
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              pointerEvents: 'none',
+              overflow: 'hidden',
+              zIndex: 50
+            }}
+          >
+            {CONFETI_PIEZAS.map((p) => (
+              <span
+                key={p.id}
+                style={{
+                  position: 'absolute',
+                  top: '-5vh',
+                  left: p.left,
+                  width: p.size,
+                  height: p.size * 1.4,
+                  background: p.color,
+                  borderRadius: 2,
+                  animation: `galaConfeti ${p.duration} linear ${p.delay} 2 forwards`
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Tarjeta principal del Campeón */}
+          <section
+            style={{
+              padding: '2.6rem 1.8rem',
+              borderRadius: 22,
+              border: '3px solid #ffd700',
+              background: 'radial-gradient(circle at top, rgba(255, 215, 0, 0.25), rgba(0, 0, 0, 0.45))',
+              textAlign: 'center',
+              marginBottom: '2.2rem',
+              animation: 'galaZoomIn 0.75s ease-out',
+              boxShadow: '0 0 40px rgba(255, 215, 0, 0.28)'
+            }}
+          >
+            <div style={{ fontSize: '3.6rem', lineHeight: 1, marginBottom: '0.6rem' }}>👑</div>
+            <small style={{ textTransform: 'uppercase', letterSpacing: 2.5, color: '#ffd700', fontWeight: 'bold' }}>
+              Campeón de Oro de la Gala
+            </small>
+
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '1.4rem 0' }}>
+              {renderAvatar(campeon, 165, '5px solid #ffd700')}
             </div>
 
-            {c.desglose.length > 0 && (
-              <ul style={{ margin: '0.7rem 0 0 0', paddingLeft: '1.6rem', fontSize: '0.88rem', opacity: 0.85 }}>
-                {c.desglose.map((d, i) => (
-                  <li key={i}>
-                    <strong>+{d.puntos} pts</strong> — {d.premio} ({d.detalle})
-                  </li>
+            <h2 style={{ margin: '0 0 0.7rem 0', fontSize: '2.8rem', color: '#ffd700' }}>
+              {campeon.nombre}
+            </h2>
+
+            <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
+              <span
+                style={{
+                  padding: '0.4rem 1.1rem',
+                  borderRadius: 20,
+                  background: '#ffd700',
+                  color: '#1a1a1a',
+                  fontWeight: 'bold',
+                  fontSize: '1.1rem'
+                }}
+              >
+                {campeon.puntosTotales} puntos totales
+              </span>
+              {campeon.especialesGanados > 0 && (
+                <span style={{ padding: '0.4rem 0.9rem', borderRadius: 20, background: '#333', fontSize: '0.95rem' }}>
+                  ⭐ {campeon.especialesGanados} {campeon.especialesGanados === 1 ? 'especial' : 'especiales'}
+                </span>
+              )}
+              {campeon.oros > 0 && (
+                <span style={{ padding: '0.4rem 0.9rem', borderRadius: 20, background: '#333', fontSize: '0.95rem' }}>
+                  🥇 {campeon.oros} {campeon.oros === 1 ? 'oro' : 'oros'}
+                </span>
+              )}
+              {campeon.platas > 0 && (
+                <span style={{ padding: '0.4rem 0.9rem', borderRadius: 20, background: '#333', fontSize: '0.95rem' }}>
+                  🥈 {campeon.platas} {campeon.platas === 1 ? 'plata' : 'platas'}
+                </span>
+              )}
+            </div>
+          </section>
+
+          {/* Premios Especiales ganados y sus razones */}
+          {campeon.especialesDestacados.length > 0 && (
+            <section style={{ marginBottom: '2.2rem', animation: 'galaFadeUp 0.8s ease-out' }}>
+              <h3 style={{ color: '#ffd700', fontSize: '1.4rem', marginBottom: '1rem' }}>
+                ⭐ Premios Especiales ganados por {campeon.nombre}
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                {campeon.especialesDestacados.map((esp, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      border: '1px solid #f5b942',
+                      borderRadius: 14,
+                      padding: '1.2rem',
+                      background: 'rgba(245, 185, 66, 0.06)'
+                    }}
+                  >
+                    <h4 style={{ margin: '0 0 0.8rem 0', fontSize: '1.25rem', color: '#f5b942' }}>
+                      🏆 {esp.premioTitulo} ({esp.votos} {esp.votos === 1 ? 'voto' : 'votos'})
+                    </h4>
+                    {esp.razones.length === 0 ? (
+                      <p style={{ margin: 0, opacity: 0.7 }}>Sin razones escritas.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+                        {esp.razones.map((r) => (
+                          <article
+                            key={r.id}
+                            style={{
+                              border: '1px solid #444',
+                              borderRadius: 10,
+                              padding: '1rem',
+                              background: 'rgba(0,0,0,0.22)'
+                            }}
+                          >
+                            <strong style={{ display: 'block', marginBottom: '0.35rem', fontSize: '1.05rem' }}>
+                              {r.titulo}
+                            </strong>
+                            {r.texto && <p style={{ margin: '0 0 0.4rem 0', whiteSpace: 'pre-wrap' }}>{r.texto}</p>}
+                            {renderMediaPropuesta(r)}
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ))}
-              </ul>
-            )}
+              </div>
+            </section>
+          )}
+
+          {/* Propuestas más votadas del Campeón */}
+          {campeon.propuestasDestacadas.length > 0 && (
+            <section style={{ marginBottom: '2.5rem', animation: 'galaFadeUp 0.9s ease-out' }}>
+              <h3 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>
+                🏆 Sus propuestas más votadas
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                {campeon.propuestasDestacadas.map((prop, i) => {
+                  const med = MEDALLA_INFO[prop.posicion] || MEDALLA_INFO[3]
+                  return (
+                    <article
+                      key={`${prop.id}-${i}`}
+                      style={{
+                        border: `2px solid ${med.color}`,
+                        background: med.bg,
+                        borderRadius: 14,
+                        padding: '1.2rem'
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: '0.5rem',
+                          marginBottom: '0.5rem'
+                        }}
+                      >
+                        <span style={{ fontWeight: 'bold', color: med.color }}>
+                          {med.icono} {prop.premioTitulo}
+                        </span>
+                        <small style={{ opacity: 0.8 }}>{prop.puntosVotacion} pts de votación</small>
+                      </div>
+                      <h4 style={{ margin: '0 0 0.4rem 0', fontSize: '1.2rem' }}>{prop.titulo}</h4>
+                      {prop.texto && <p style={{ margin: '0 0 0.4rem 0', whiteSpace: 'pre-wrap' }}>{prop.texto}</p>}
+                      {renderMediaPropuesta(prop)}
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* Botón para ver la tabla completa */}
+          <div style={{ textAlign: 'center', marginTop: '2rem', marginBottom: '1rem' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setPasoCeremonia('tabla')
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+              }}
+              style={{
+                padding: '1rem 2.2rem',
+                fontSize: '1.15rem',
+                fontWeight: 'bold',
+                borderRadius: 12,
+                border: '2px solid #ffd700',
+                background: 'rgba(255, 215, 0, 0.14)',
+                color: '#ffd700',
+                cursor: 'pointer'
+              }}
+            >
+              📊 Ver clasificación completa (Top 11)
+            </button>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+
+      {/* PASO 5: TABLA COMPLETA DEL TOP 11 */}
+      {pasoCeremonia === 'tabla' && (
+        <div style={{ animation: 'galaFadeUp 0.5s ease-out' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '0.8rem',
+              marginBottom: '1.4rem'
+            }}
+          >
+            <h2 style={{ margin: 0, color: '#ffd700' }}>Clasificación Completa — Top 11</h2>
+            <button
+              type="button"
+              onClick={() => {
+                setPasoCeremonia('ganador')
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+              }}
+              style={{ padding: '0.45rem 0.9rem', borderRadius: 8, cursor: 'pointer' }}
+            >
+              ← Volver al Campeón
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gap: '0.9rem' }}>
+            {top11.map((c, index) => (
+              <div
+                key={c.id}
+                style={{
+                  border: index === 0 && c.puntosTotales > 0 ? '2px solid #ffd700' : '1px solid #444',
+                  background: index === 0 && c.puntosTotales > 0 ? 'rgba(255, 215, 0, 0.10)' : 'transparent',
+                  borderRadius: 12,
+                  padding: '1rem 1.2rem'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                    <strong style={{ fontSize: '1.2rem', width: 34 }}>
+                      {index === 0 ? '👑' : `#${index + 1}`}
+                    </strong>
+                    {renderAvatar(c, 48, index === 0 ? '2px solid #ffd700' : '1px solid #555')}
+                    <div>
+                      <strong style={{ fontSize: '1.15rem', display: 'block' }}>{c.nombre}</strong>
+                      <small style={{ opacity: 0.7 }}>
+                        ⭐ {c.especialesGanados} esp · 🥇 {c.oros} oros · 🥈 {c.platas} platas · 📋 {c.nominaciones} nom
+                      </small>
+                    </div>
+                  </div>
+
+                  <span
+                    style={{
+                      padding: '0.35rem 0.9rem',
+                      borderRadius: 16,
+                      fontWeight: 'bold',
+                      background: c.puntosTotales > 0 ? '#ffd700' : '#333',
+                      color: c.puntosTotales > 0 ? '#1a1a1a' : '#aaa'
+                    }}
+                  >
+                    {c.puntosTotales} pts
+                  </span>
+                </div>
+
+                {c.desglose.length > 0 && (
+                  <details style={{ marginTop: '0.7rem' }}>
+                    <summary style={{ cursor: 'pointer', fontSize: '0.85rem', opacity: 0.8 }}>
+                      Ver desglose de puntos ({c.desglose.length})
+                    </summary>
+                    <ul style={{ margin: '0.5rem 0 0 0', paddingLeft: '1.5rem', fontSize: '0.88rem', opacity: 0.85 }}>
+                      {c.desglose.map((d, i) => (
+                        <li key={i}>
+                          <strong>+{d.puntos} pts</strong> — {d.premio} ({d.detalle})
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
