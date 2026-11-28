@@ -131,7 +131,10 @@ export default function App() {
             element={<PremioDetalle session={session} mostrarMedia={mostrarMedia} fase={fase} />}
           />
           <Route path="/candidatos" element={<Candidatos />} />
-          <Route path="/resultados" element={<Resultados session={session} />} />
+          <Route
+          path="/resultados"
+          element={<Resultados session={session} mostrarMedia={mostrarMedia} />}
+          />
         </Routes>
       </main>
     </BrowserRouter>
